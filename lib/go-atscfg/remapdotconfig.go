@@ -22,6 +22,7 @@ package atscfg
 import (
 	"errors"
 	"github.com/apache/trafficcontrol/lib/go-log"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,6 +44,40 @@ type RemapDotConfigOpts struct {
 	// To omit the header comment, pass the empty string.
 	HdrComment string
 }
+
+// FIX THIS
+func sliceContains(slice []string, target string) bool {
+	for _, v := range slice {
+		if v == target {
+			return true
+		}
+	}
+	return false
+}
+
+func isMappingContained(slice []string, target string) bool {
+	for _, mapping := range slice {
+		fields := strings.Fields(mapping)
+		// if len(mapping) < 3 {
+		// 	continue
+		// }
+		if string(fields[1]) == target {
+			return true
+		}
+	}
+	return false
+}
+
+func removeDuplicates(slice []string, target string) []string {
+	for i, mapping := range slice {
+		fields := strings.Fields(mapping)
+		if string(fields[1]) == target {
+			slice = append(slice[:i], slice[i+1:]...)
+		}
+	}
+	return slice
+}
+//FIX THIS
 
 func MakeRemapDotConfig(
 	server *Server,
@@ -88,6 +123,17 @@ func MakeRemapDotConfig(
 	warnings = append(warnings, verWarns...)
 	serverPackageParamData, paramWarns := makeServerPackageParamData(server, serverParams)
 	warnings = append(warnings, paramWarns...)
+
+	mapperMode := ""
+	mapperMap := ""
+	for _, param := range serverParams {
+		if param.Name == "mapper_mode" && param.ConfigFile == "vgl_mapper.config" {
+			mapperMode = param.Value
+		} else if param.Name == "mapper_map" && param.ConfigFile == "mapper_rules.config" {
+			mapperMap = param.Value
+		}
+	}
+
 	cacheGroups, err := makeCGMap(cacheGroupArr)
 	if err != nil {
 		return Cfg{}, makeErr(warnings, "making remap.config, config will be malformed! : "+err.Error())
@@ -101,7 +147,7 @@ func MakeRemapDotConfig(
 	if tc.CacheTypeFromString(server.Type) == tc.CacheTypeMid {
 		txt, typeWarns, err = getServerConfigRemapDotConfigForMid(atsMajorVersion, dsProfilesConfigParams, dses, dsRegexes, hdr, server, nameTopologies, cacheGroups, serverCapabilities, dsRequiredCapabilities)
 	} else {
-		txt, typeWarns, err = getServerConfigRemapDotConfigForEdge(dsProfilesConfigParams, serverPackageParamData, dses, dsRegexes, atsMajorVersion, hdr, server, nameTopologies, cacheGroups, serverCapabilities, dsRequiredCapabilities, cdnDomain)
+		txt, typeWarns, err = getServerConfigRemapDotConfigForEdge(dsProfilesConfigParams, serverPackageParamData, dses, dsRegexes, atsMajorVersion, hdr, server, nameTopologies, cacheGroups, serverCapabilities, dsRequiredCapabilities, cdnDomain, mapperMode, mapperMap)
 	}
 	warnings = append(warnings, typeWarns...)
 	if err != nil {
@@ -316,9 +362,12 @@ func getServerConfigRemapDotConfigForEdge(
 	serverCapabilities map[int]map[ServerCapability]struct{},
 	dsRequiredCapabilities map[int]map[ServerCapability]struct{},
 	cdnDomain string,
+	mapperMode string,
+	mapperMap string,
 ) (string, []string, error) {
 	warnings := []string{}
 	textLines := []string{}
+	mapperLines := []string{}
 
 	for _, ds := range dses {
 		if !hasRequiredCapabilities(serverCapabilities[*server.ID], dsRequiredCapabilities[*ds.ID]) {
@@ -381,9 +430,101 @@ func getServerConfigRemapDotConfigForEdge(
 		textLines = append(textLines, remapText)
 	}
 
+	if mapperMap != "" {
+		mapper := make(map[string]string)
+		lines := strings.Split(mapperMap, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) < 3 {
+				continue
+			}
+			keyword := fields[1]
+			originURL := fields[2]
+			mapper[keyword] = originURL
+
+			for _, ds := range dses {
+				if !hasRequiredCapabilities(serverCapabilities[*server.ID], dsRequiredCapabilities[*ds.ID]) {
+					continue
+				}
+
+				topology, hasTopology := nameTopologies[TopologyName(*ds.Topology)]
+				if *ds.Topology != "" && hasTopology {
+					topoIncludesServer, err := topologyIncludesServerNullable(topology, server)
+					if err != nil {
+						return "", warnings, errors.New("getting topology server inclusion: " + err.Error())
+					}
+					if !topoIncludesServer {
+						continue
+					}
+				}
+
+				originURL, ok := mapper[*ds.XMLID]
+				if !ok {
+					continue
+				}
+
+				remapText := ""
+				if *ds.Type == tc.DSTypeAnyMap {
+					if ds.RemapText == nil {
+						warnings = append(warnings, "ds '"+*ds.XMLID+"' is ANY_MAP, but has no remap text - skipping")
+						continue
+					}
+					remapText = *ds.RemapText + "\n"
+					mapperLines = append(mapperLines, remapText)
+					continue
+				}
+
+				requestFQDNs, err := getDSRequestFQDNs(&ds, dsRegexes[tc.DeliveryServiceName(*ds.XMLID)], server, cdnDomain)
+				if err != nil {
+					warnings = append(warnings, "error getting ds '"+*ds.XMLID+"' request fqdns, skipping! Error: "+err.Error())
+					continue
+				}
+
+				for _, requestFQDN := range requestFQDNs {
+					remapLines, err := makeEdgeDSDataRemapLines(ds, requestFQDN, server, cdnDomain)
+					if err != nil {
+						warnings = append(warnings, "DS '"+*ds.XMLID+"' - skipping! : "+err.Error())
+						continue
+					}
+
+					for _, line := range remapLines {
+						profileremapConfigParams := []tc.Parameter{}
+						if ds.ProfileID != nil {
+							profileremapConfigParams = profilesRemapConfigParams[*ds.ProfileID]
+						}
+						remapWarns := []string{}
+						remapText, remapWarns, err = buildEdgeRemapLine(atsMajorVersion, server, serverPackageParamData, remapText, ds, line.From, originURL, profileremapConfigParams, cacheGroups, nameTopologies)
+						warnings = append(warnings, remapWarns...)
+
+						if err != nil {
+							return "", warnings, err
+						}
+						if hasTopology {
+							remapText += " # topology '" + topology.Name + "'"
+						}
+						remapText += "\n"
+						currentFields := strings.Fields(remapText)
+						if !isMappingContained(mapperLines, currentFields[1]) && !sliceContains(mapperLines, remapText) && !sliceContains(textLines, remapText) {
+							mapperLines = append(mapperLines, remapText)
+						}
+						textLines = removeDuplicates(textLines, currentFields[1])
+					}
+				}
+			}
+		}
+	}
+
 	text := header
 	sort.Strings(textLines)
-	text += strings.Join(textLines, "")
+	if mapperMode == "prepend" {
+		text += "\n### Mapper ###\n\n" + strings.Join(mapperLines, "") + "\n### ATC ###\n\n" + strings.Join(textLines, "")
+	} else {
+		text += "\n### ATC ###\n\n" + strings.Join(textLines, "") + "\n### Mapper ###\n\n" + strings.Join(mapperLines, "")
+	}
 	return text, warnings, nil
 }
 
@@ -397,7 +538,7 @@ func buildEdgeRemapLine(
 	text string,
 	ds DeliveryService,
 	mapFrom string,
-	mapTo string,
+	originURL string,
 	remapConfigParams []tc.Parameter,
 	cacheGroups map[tc.CacheGroupName]tc.CacheGroupNullable,
 	nameTopologies map[TopologyName]tc.Topology,
@@ -405,6 +546,14 @@ func buildEdgeRemapLine(
 	warnings := []string{}
 	// ds = 'remap' in perl
 	mapFrom = strings.Replace(mapFrom, `__http__`, *server.HostName, -1)
+	parsedOriginURL, err := url.Parse(originURL)
+	if err != nil {
+		return "", warnings, errors.New("parsing origin URL '" + originURL + "': " + err.Error())
+	}
+	mapFrom, err = appendPathToURL(mapFrom, parsedOriginURL.Path)
+	if err != nil {
+		return "", warnings, errors.New("adding origin URL path to remap source '" + mapFrom + "': " + err.Error())
+	}
 
 	isLastCache, err := serverIsLastCacheForDS(server, &ds, nameTopologies, cacheGroups)
 	if err != nil {
@@ -414,13 +563,13 @@ func buildEdgeRemapLine(
 	// if this remap is going to a parent, use http not https.
 	// cache-to-cache communication inside the CDN is always http (though that's likely to change in the future)
 	if !isLastCache {
-		mapTo = strings.Replace(mapTo, `https://`, `http://`, -1)
+		originURL = strings.Replace(originURL, `https://`, `http://`, -1)
 	}
 
 	if _, hasDSCPRemap := pData["dscp_remap"]; hasDSCPRemap {
-		text += "map	" + mapFrom + "     " + mapTo + ` @plugin=dscp_remap.so @pparam=` + strconv.Itoa(*ds.DSCP)
+		text += "map	" + mapFrom + "     " + originURL + ` @plugin=dscp_remap.so @pparam=` + strconv.Itoa(*ds.DSCP)
 	} else {
-		text += "map	" + mapFrom + "     " + mapTo + ` @plugin=header_rewrite.so @pparam=dscp/set_dscp_` + strconv.Itoa(*ds.DSCP) + ".config"
+		text += "map	" + mapFrom + "     " + originURL + ` @plugin=header_rewrite.so @pparam=dscp/set_dscp_` + strconv.Itoa(*ds.DSCP) + ".config"
 	}
 
 	if *ds.Topology != "" {
@@ -514,6 +663,33 @@ func buildEdgeRemapLine(
 	}
 
 	return text, warnings, nil
+}
+
+func appendPathToURL(rawURL string, pathToAppend string) (string, error) {
+	if pathToAppend == "" || pathToAppend == "/" {
+		return rawURL, nil
+	}
+
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+
+	basePath := parsedURL.Path
+	if basePath == "" {
+		basePath = "/"
+	}
+
+	switch {
+	case strings.HasSuffix(basePath, "/") && strings.HasPrefix(pathToAppend, "/"):
+		parsedURL.Path = basePath + strings.TrimPrefix(pathToAppend, "/")
+	case !strings.HasSuffix(basePath, "/") && !strings.HasPrefix(pathToAppend, "/"):
+		parsedURL.Path = basePath + "/" + pathToAppend
+	default:
+		parsedURL.Path = basePath + pathToAppend
+	}
+
+	return parsedURL.String(), nil
 }
 
 // makeDSTopologyHeaderRewriteTxt returns the appropriate header rewrite remap line text for the given DS on the given server, and any error.

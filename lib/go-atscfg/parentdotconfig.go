@@ -68,6 +68,17 @@ const ParentConfigCacheParamNotAParent = "not_a_parent"
 type OriginHost string
 type OriginFQDN string
 
+type mapperRule struct {
+	OriginFQDN           string
+	OriginPath           string
+	OriginPathNoPlaylist string
+	Backups              []string // each element is a hostname
+	InsertionRing        []string // each element is a hostname
+	Insertion            bool
+	BackupIsProxy        bool
+	InserterIsProxy      bool
+}
+
 // ParentConfigOpts contains settings to configure parent.config generation options.
 type ParentConfigOpts struct {
 	// AddComments is whether to add informative comments to the generated file, about what was generated and why.
@@ -134,6 +145,7 @@ func MakeParentDotConfig(
 	}
 
 	textArr := []string{}
+	mapperTextArr := []string{}
 	processedOriginsToDSNames := map[string]tc.DeliveryServiceName{}
 
 	parentConfigParamsWithProfiles, err := tcParamsToParamsWithProfiles(tcParentConfigParams)
@@ -163,6 +175,122 @@ func MakeParentDotConfig(
 				name == ParentConfigParamQString {
 				serverParams[name] = val
 			}
+		}
+	}
+
+	// VGL Mapper Support
+	mapperMode := ""
+	mapperMap := ""
+	for _, param := range tcServerParams {
+		if param.Name == "mapper_mode" && param.ConfigFile == "vgl_mapper.config" {
+			mapperMode = param.Value
+		} else if param.Name == "mapper_map" && param.ConfigFile == "mapper_rules.config" {
+			mapperMap = param.Value
+		}
+	}
+
+	mapperRules := map[string][]mapperRule{}
+	if mapperMode != "" && mapperMap != "" {
+		lines := strings.Split(mapperMap, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) < 6 {
+				warnings = append(warnings, "mapper rule line has fewer than 6 fields, skipping: "+line)
+				continue
+			}
+			// Fields: 0=unused, 1=XMLID, 2=OriginURL, 3=Backups(csv), 4=Insertion(bool), 5=InsertionServers(csv), 6=BackupIsProxy(bool), 7=InserterIsProxy(bool)
+			xmlid := fields[1]
+			originURL := fields[2]
+
+			// Parse the Origin URL to extract FQDN and Path
+			parsedOrigin, err := url.Parse(originURL)
+			var originFQDN, originPath string
+			if err != nil || parsedOrigin.Host == "" {
+				warnings = append(warnings, "mapper rule has invalid origin URL '"+originURL+"', using as-is")
+				originFQDN = originURL
+				originPath = ""
+			} else {
+				originFQDN = parsedOrigin.Hostname()
+				originPath = parsedOrigin.Path
+			}
+
+			// OriginPathNoPlaylist: remove the first path segment matching *.m3u8 and everything after it
+			reM3u8 := regexp.MustCompile(`/[^/]*\.m3u8.*$`)
+			originPathNoPlaylist := reM3u8.ReplaceAllString(originPath, "")
+
+			// Backups: comma-separated list, extract hostnames only
+			backupParts := strings.Split(fields[3], ",")
+			backups := make([]string, 0, len(backupParts))
+			for _, b := range backupParts {
+				backupURL, err := url.Parse(b)
+				if err != nil {
+					warnings = append(warnings, "mapper rule has invalid backup URL '"+b+"', skipping")
+					continue
+				}
+				host := backupURL.Hostname()
+				var port string
+				if backupURL.Port() == "" {
+					port = "80"
+				} else {
+					port = backupURL.Port()
+				}
+				backups = append(backups, host+":"+port)
+			}
+
+			// Insertion boolean
+			insertion := strings.EqualFold(fields[4], "true")
+			backupIsProxy := true
+			if len(fields) >= 7 {
+				parsedBackupIsProxy, err := strconv.ParseBool(fields[6])
+				if err != nil {
+					warnings = append(warnings, "mapper rule has invalid BackupIsProxy value '"+fields[6]+"', defaulting to true")
+				} else {
+					backupIsProxy = parsedBackupIsProxy
+				}
+			}
+			inserterIsProxy := true
+			if len(fields) >= 8 {
+				parsedInserterIsProxy, err := strconv.ParseBool(fields[7])
+				if err != nil {
+					warnings = append(warnings, "mapper rule has invalid InserterIsProxy value '"+fields[7]+"', defaulting to true")
+				} else {
+					inserterIsProxy = parsedInserterIsProxy
+				}
+			}
+
+			// InsertionRing: comma-separated list, extract hostnames only
+			insertionParts := strings.Split(fields[5], ",")
+			insertionRing := make([]string, 0, len(insertionParts))
+			for _, b := range insertionParts {
+				insertionURL, err := url.Parse(b)
+				if err != nil {
+					warnings = append(warnings, "mapper rule has invalid insertion URL '"+b+"', skipping")
+					continue
+				}
+				host := insertionURL.Hostname()
+				var port string
+				if insertionURL.Port() == "" {
+					port = "80"
+				} else {
+					port = insertionURL.Port()
+				}
+				insertionRing = append(insertionRing, host+":"+port)
+			}
+
+			mapperRules[xmlid] = append(mapperRules[xmlid], mapperRule{
+				OriginFQDN:           originFQDN,
+				OriginPath:           originPath,
+				OriginPathNoPlaylist: originPathNoPlaylist,
+				Backups:              backups,
+				InsertionRing:        insertionRing,
+				Insertion:            insertion,
+				BackupIsProxy:        backupIsProxy,
+				InserterIsProxy:      inserterIsProxy,
+			})
 		}
 	}
 
@@ -297,9 +425,35 @@ func MakeParentDotConfig(
 		dsParams, dsParamsWarnings := getParentDSParams(ds, profileParentConfigParams)
 		warnings = append(warnings, dsParamsWarnings...)
 
-		if existingDS, ok := processedOriginsToDSNames[*ds.OrgServerFQDN]; ok {
-			warnings = append(warnings, "duplicate origin! DS '"+*ds.XMLID+"' and '"+string(existingDS)+"' share origin '"+*ds.OrgServerFQDN+"': skipping '"+*ds.XMLID+"'!")
-			continue
+		// if existingDS, ok := processedOriginsToDSNames[*ds.OrgServerFQDN]; ok {
+		// 	warnings = append(warnings, "duplicate origin! DS '"+*ds.XMLID+"' and '"+string(existingDS)+"' share origin '"+*ds.OrgServerFQDN+"': skipping '"+*ds.XMLID+"'!")
+		// 	log.Printf("duplicate origin! DS '%s' and '%s' share origin '%s': skipping '%s'", *ds.XMLID, string(existingDS), *ds.OrgServerFQDN, *ds.XMLID)
+		// 	continue
+		// }
+
+		// VGL Mapper: generate additional parent line if this DS matches a mapper rule
+		rules, ok := mapperRules[*ds.XMLID]
+		if ok {
+			for _, rule := range rules {
+				if rule.Insertion {
+					insertionParent := strings.Join(rule.InsertionRing, ",")
+					insertionProxySuffix := ""
+					if !rule.InserterIsProxy {
+						insertionProxySuffix = " parent_is_proxy=false"
+					}
+					mapperLine := "dest_host=" + rule.OriginFQDN + " prefix=" + rule.OriginPath + " scheme=http parent=\"" + insertionParent + "\" go_direct=true" + insertionProxySuffix + "\n"
+					mapperLine += "dest_host=" + rule.OriginFQDN + " prefix=" + rule.OriginPath + " scheme=https parent=\"" + insertionParent + "\" go_direct=true" + insertionProxySuffix + "\n"
+					mapperTextArr = append(mapperTextArr, mapperLine)
+				}
+				backupParent := strings.Join(rule.Backups, ",")
+				backupProxySuffix := ""
+				if !rule.BackupIsProxy {
+					backupProxySuffix = " parent_is_proxy=false"
+				}
+				mapperLine := "dest_host=" + rule.OriginFQDN + " prefix=" + rule.OriginPathNoPlaylist + " scheme=http parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + "\n"
+				mapperLine += "dest_host=" + rule.OriginFQDN + " prefix=" + rule.OriginPathNoPlaylist + " scheme=https parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + "\n"
+				mapperTextArr = append(mapperTextArr, mapperLine)
+			}
 		}
 
 		// TODO put these in separate functions. No if-statement should be this long.
@@ -354,10 +508,10 @@ func MakeParentDotConfig(
 				if parentSelectAlg := serverParams[ParentConfigParamAlgorithm]; strings.TrimSpace(parentSelectAlg) != "" {
 					algorithm = "round_robin=" + parentSelectAlg
 				}
-				textLine += makeParentComment(opt.AddComments, *ds.XMLID, "")
+				// textLine += makeParentComment(opt.AddComments, *ds.XMLID, "")
 				textLine += "dest_domain=" + orgURI.Hostname() + " port=" + orgURI.Port() + " parent=" + *ds.OriginShield + " " + algorithm + " go_direct=true\n"
 			} else if ds.MultiSiteOrigin != nil && *ds.MultiSiteOrigin {
-				textLine += makeParentComment(opt.AddComments, *ds.XMLID, "")
+				// textLine += makeParentComment(opt.AddComments, *ds.XMLID, "")
 				textLine += "dest_domain=" + orgURI.Hostname() + " port=" + orgURI.Port() + " "
 				if len(parentInfos) == 0 {
 				}
@@ -399,7 +553,7 @@ func MakeParentDotConfig(
 				continue
 			}
 
-			text += makeParentComment(opt.AddComments, *ds.XMLID, "")
+			// text += makeParentComment(opt.AddComments, *ds.XMLID, "")
 
 			// TODO encode this in a DSType func, IsGoDirect() ?
 			if *ds.Type == tc.DSTypeHTTPNoCache || *ds.Type == tc.DSTypeHTTPLive || *ds.Type == tc.DSTypeDNSLive {
@@ -455,9 +609,9 @@ func MakeParentDotConfig(
 	}
 
 	sort.Sort(sort.StringSlice(textArr))
-	text := hdr + strings.Join(textArr, "")
+	text := hdr + strings.Join(mapperTextArr, "") + strings.Join(textArr, "")
 
-	text += makeParentComment(opt.AddComments, "", "") + defaultDestText
+	// text += makeParentComment(opt.AddComments, "", "") + defaultDestText
 
 	return Cfg{
 		Text:        text,
@@ -672,7 +826,8 @@ type parentDSParams struct {
 // getDSParams returns the Delivery Service Profile Parameters used in parent.config, and any warnings.
 // If Parameters don't exist, defaults are returned. Non-MSO Delivery Services default to no custom retry logic (we should reevaluate that).
 // Note these Parameters are only used for MSO for legacy DeliveryServiceServers DeliveryServices.
-//      Topology DSes use them for all DSes, MSO and non-MSO.
+//
+//	Topology DSes use them for all DSes, MSO and non-MSO.
 func getParentDSParams(ds DeliveryService, profileParentConfigParams map[string]map[string]string) (parentDSParams, []string) {
 	warnings := []string{}
 	params := parentDSParams{}
@@ -793,7 +948,7 @@ func getTopologyParentConfigLine(
 		return "", warnings, errors.New("DS '" + *ds.XMLID + "' has malformed origin URI: '" + *ds.OrgServerFQDN + "': skipping!" + err.Error())
 	}
 
-	txt += makeParentComment(addComments, *ds.XMLID, *ds.Topology)
+	// txt += makeParentComment(addComments, *ds.XMLID, *ds.Topology)
 	txt += "dest_domain=" + orgURI.Hostname() + " port=" + orgURI.Port()
 
 	parents, secondaryParents, parentWarnings, err := getTopologyParents(server, ds, servers, parentConfigParams, topology, serverPlacement.IsLastTier, serverCapabilities, dsRequiredCapabilities, dsOrigins)
