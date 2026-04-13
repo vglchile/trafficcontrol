@@ -68,17 +68,6 @@ const ParentConfigCacheParamNotAParent = "not_a_parent"
 type OriginHost string
 type OriginFQDN string
 
-type mapperRule struct {
-	OriginFQDN           string
-	OriginPath           string
-	OriginPathNoPlaylist string
-	Backups              []string // each element is a hostname
-	InsertionRing        []string // each element is a hostname
-	Insertion            bool
-	BackupIsProxy        bool
-	InserterIsProxy      bool
-}
-
 // ParentConfigOpts contains settings to configure parent.config generation options.
 type ParentConfigOpts struct {
 	// AddComments is whether to add informative comments to the generated file, about what was generated and why.
@@ -189,110 +178,8 @@ func MakeParentDotConfig(
 		}
 	}
 
-	mapperRules := map[string][]mapperRule{}
-	if mapperMode != "" && mapperMap != "" {
-		lines := strings.Split(mapperMap, "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			fields := strings.Fields(line)
-			if len(fields) < 6 {
-				warnings = append(warnings, "mapper rule line has fewer than 6 fields, skipping: "+line)
-				continue
-			}
-			// Fields: 0=unused, 1=XMLID, 2=OriginURL, 3=Backups(csv), 4=Insertion(bool), 5=InsertionServers(csv), 6=BackupIsProxy(bool), 7=InserterIsProxy(bool)
-			xmlid := fields[1]
-			originURL := fields[2]
-
-			// Parse the Origin URL to extract FQDN and Path
-			parsedOrigin, err := url.Parse(originURL)
-			var originFQDN, originPath string
-			if err != nil || parsedOrigin.Host == "" {
-				warnings = append(warnings, "mapper rule has invalid origin URL '"+originURL+"', using as-is")
-				originFQDN = originURL
-				originPath = ""
-			} else {
-				originFQDN = parsedOrigin.Hostname()
-				originPath = parsedOrigin.Path
-			}
-
-			// OriginPathNoPlaylist: remove the first path segment matching *.m3u8 and everything after it
-			reM3u8 := regexp.MustCompile(`/[^/]*\.m3u8.*$`)
-			originPathNoPlaylist := reM3u8.ReplaceAllString(originPath, "")
-
-			// Backups: comma-separated list, extract hostnames only
-			backupParts := strings.Split(fields[3], ",")
-			backups := make([]string, 0, len(backupParts))
-			for _, b := range backupParts {
-				backupURL, err := url.Parse(b)
-				if err != nil {
-					warnings = append(warnings, "mapper rule has invalid backup URL '"+b+"', skipping")
-					continue
-				}
-				host := backupURL.Hostname()
-				var port string
-				if backupURL.Port() == "" {
-					port = "80"
-				} else {
-					port = backupURL.Port()
-				}
-				backups = append(backups, host+":"+port)
-			}
-
-			// Insertion boolean
-			insertion := strings.EqualFold(fields[4], "true")
-			backupIsProxy := true
-			if len(fields) >= 7 {
-				parsedBackupIsProxy, err := strconv.ParseBool(fields[6])
-				if err != nil {
-					warnings = append(warnings, "mapper rule has invalid BackupIsProxy value '"+fields[6]+"', defaulting to true")
-				} else {
-					backupIsProxy = parsedBackupIsProxy
-				}
-			}
-			inserterIsProxy := true
-			if len(fields) >= 8 {
-				parsedInserterIsProxy, err := strconv.ParseBool(fields[7])
-				if err != nil {
-					warnings = append(warnings, "mapper rule has invalid InserterIsProxy value '"+fields[7]+"', defaulting to true")
-				} else {
-					inserterIsProxy = parsedInserterIsProxy
-				}
-			}
-
-			// InsertionRing: comma-separated list, extract hostnames only
-			insertionParts := strings.Split(fields[5], ",")
-			insertionRing := make([]string, 0, len(insertionParts))
-			for _, b := range insertionParts {
-				insertionURL, err := url.Parse(b)
-				if err != nil {
-					warnings = append(warnings, "mapper rule has invalid insertion URL '"+b+"', skipping")
-					continue
-				}
-				host := insertionURL.Hostname()
-				var port string
-				if insertionURL.Port() == "" {
-					port = "80"
-				} else {
-					port = insertionURL.Port()
-				}
-				insertionRing = append(insertionRing, host+":"+port)
-			}
-
-			mapperRules[xmlid] = append(mapperRules[xmlid], mapperRule{
-				OriginFQDN:           originFQDN,
-				OriginPath:           originPath,
-				OriginPathNoPlaylist: originPathNoPlaylist,
-				Backups:              backups,
-				InsertionRing:        insertionRing,
-				Insertion:            insertion,
-				BackupIsProxy:        backupIsProxy,
-				InserterIsProxy:      inserterIsProxy,
-			})
-		}
-	}
+	mapperRules, mapperWarnings := BuildMapperRules(mapperMode, mapperMap)
+	warnings = append(warnings, mapperWarnings...)
 
 	parentCacheGroups := map[string]struct{}{}
 	if cacheIsTopLevel {
