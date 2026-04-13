@@ -45,40 +45,6 @@ type RemapDotConfigOpts struct {
 	HdrComment string
 }
 
-// FIX THIS
-func sliceContains(slice []string, target string) bool {
-	for _, v := range slice {
-		if v == target {
-			return true
-		}
-	}
-	return false
-}
-
-func isMappingContained(slice []string, target string) bool {
-	for _, mapping := range slice {
-		fields := strings.Fields(mapping)
-		// if len(mapping) < 3 {
-		// 	continue
-		// }
-		if string(fields[1]) == target {
-			return true
-		}
-	}
-	return false
-}
-
-func removeDuplicates(slice []string, target string) []string {
-	for i, mapping := range slice {
-		fields := strings.Fields(mapping)
-		if string(fields[1]) == target {
-			slice = append(slice[:i], slice[i+1:]...)
-		}
-	}
-	return slice
-}
-//FIX THIS
-
 func MakeRemapDotConfig(
 	server *Server,
 	unfilteredDSes []DeliveryService,
@@ -371,6 +337,7 @@ func getServerConfigRemapDotConfigForEdge(
 	warnings := []string{}
 	textLines := []string{}
 	mapperLines := []string{}
+	mapperRequestLines := []string{}
 
 	for _, ds := range dses {
 		if !hasRequiredCapabilities(serverCapabilities[*server.ID], dsRequiredCapabilities[*ds.ID]) {
@@ -457,7 +424,7 @@ func getServerConfigRemapDotConfigForEdge(
 				}
 				mapperRemapWarns := []string{}
 
-				if rule.Insertion {
+				if rule.Insertion && rule.OriginPath != "" {
 					mapFromWithPlaylist, err = appendPathToURL(mapFromNoPlaylist, rule.OriginPath)
 					if err != nil {
 						return "", warnings, errors.New("adding origin URL path to remap source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
@@ -467,6 +434,7 @@ func getServerConfigRemapDotConfigForEdge(
 				}
 
 				mapFromNoPlaylist, err = appendPathToURL(mapFromNoPlaylist, rule.OriginPathNoPlaylist)
+				mapFromNoPlaylist += "/"
 				if err != nil {
 					return "", warnings, errors.New("adding origin URL path to remap source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
 					continue
@@ -483,12 +451,19 @@ func getServerConfigRemapDotConfigForEdge(
 				} else {
 					mapperRemapText += subRule2 + "\n"
 				}
+
+				if mapFromWithPlaylist != "" {
+					mapperRequestLines = append(mapperRequestLines, mapFromWithPlaylist)
+				}
+				mapperRequestLines = append(mapperRequestLines, mapFromNoPlaylist)
 			}
 		}
 		mapperLines = append(mapperLines, mapperRemapText)
 		textLines = append(textLines, remapText)
+	}
 
-		// textLines = removeDuplicates(textLines, currentFields[1])
+	for _,requestLine := range mapperRequestLines {
+		textLines = removeDuplicates(textLines, requestLine)
 	}
 
 	text := header
@@ -628,33 +603,6 @@ func buildEdgeRemapLine(
 	}
 
 	return text, warnings, nil
-}
-
-func appendPathToURL(rawURL string, pathToAppend string) (string, error) {
-	if pathToAppend == "" || pathToAppend == "/" {
-		return rawURL, nil
-	}
-
-	parsedURL, err := url.Parse(rawURL)
-	if err != nil {
-		return "", err
-	}
-
-	basePath := parsedURL.Path
-	if basePath == "" {
-		basePath = "/"
-	}
-
-	switch {
-	case strings.HasSuffix(basePath, "/") && strings.HasPrefix(pathToAppend, "/"):
-		parsedURL.Path = basePath + strings.TrimPrefix(pathToAppend, "/")
-	case !strings.HasSuffix(basePath, "/") && !strings.HasPrefix(pathToAppend, "/"):
-		parsedURL.Path = basePath + "/" + pathToAppend
-	default:
-		parsedURL.Path = basePath + pathToAppend
-	}
-
-	return parsedURL.String(), nil
 }
 
 // makeDSTopologyHeaderRewriteTxt returns the appropriate header rewrite remap line text for the given DS on the given server, and any error.
@@ -994,3 +942,64 @@ func serverIsLastCacheForDS(server *Server, ds *DeliveryService, topologies map[
 func noTopologyServerIsLastCacheForDS(server *Server, ds *DeliveryService) bool {
 	return strings.HasPrefix(server.Type, tc.MidTypePrefix) || !ds.Type.UsesMidCache()
 }
+
+// UTILS START
+func appendPathToURL(rawURL string, pathToAppend string) (string, error) {
+	if pathToAppend == "" || pathToAppend == "/" {
+		return rawURL, nil
+	}
+
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+
+	basePath := parsedURL.Path
+	if basePath == "" {
+		basePath = "/"
+	}
+
+	switch {
+	case strings.HasSuffix(basePath, "/") && strings.HasPrefix(pathToAppend, "/"):
+		parsedURL.Path = basePath + strings.TrimPrefix(pathToAppend, "/")
+	case !strings.HasSuffix(basePath, "/") && !strings.HasPrefix(pathToAppend, "/"):
+		parsedURL.Path = basePath + "/" + pathToAppend
+	default:
+		parsedURL.Path = basePath + pathToAppend
+	}
+
+	return parsedURL.String(), nil
+}
+
+func sliceContains(slice []string, target string) bool {
+	for _, v := range slice {
+		if v == target {
+			return true
+		}
+	}
+	return false
+}
+
+func isMappingContained(mappings []string, target string) bool {
+	for _, mapping := range mappings {
+		fields := strings.Fields(mapping)
+		// if len(mapping) < 3 {
+		// 	continue
+		// }
+		if string(fields[1]) == target {
+			return true
+		}
+	}
+	return false
+}
+
+func removeDuplicates(mappings []string, target string) []string {
+	for i, mapping := range mappings {
+		fields := strings.Fields(mapping)
+		if string(fields[1]) == target {
+			mappings = append(mappings[:i], mappings[i+1:]...)
+		}
+	}
+	return mappings
+}
+//UTILS END

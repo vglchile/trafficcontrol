@@ -84,7 +84,7 @@ func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperR
 
 			originScheme := parsedOrigin.Scheme
 			originURL = originScheme + "://" + originFQDN + originPath
-			originURLNoPlaylist := originScheme + "://" + originFQDN + originPathNoPlaylist
+			originURLNoPlaylist := originScheme + "://" + originFQDN + originPathNoPlaylist + "/"
 
 			// Backups: comma-separated list, extract hostnames only
 			backupParts := strings.Split(Backups, ",")
