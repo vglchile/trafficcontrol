@@ -78,20 +78,20 @@ func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperR
 			originScheme := parsedOrigin.Scheme
 
 			originPort := ""
-			if parsedOrigin.Port() == "80" && parsedOrigin.Scheme == "http" {
-				warnings = append(warnings, "mapper rule has OriginPort set to 80 for scheme '"+parsedOrigin.Scheme+"', defaulting to empty")
+			if parsedOrigin.Port() == "80" && originScheme == "http" {
+				warnings = append(warnings, "mapper rule has OriginPort set to 80 for scheme '"+originScheme+"', defaulting to empty")
 				originPort = ""
-			} else if parsedOrigin.Port() == "443" && parsedOrigin.Scheme == "https" {
-				warnings = append(warnings, "mapper rule has OriginPort set to 443 for scheme '"+parsedOrigin.Scheme+"', defaulting to empty")
+			} else if parsedOrigin.Port() == "443" && originScheme == "https" {
+				warnings = append(warnings, "mapper rule has OriginPort set to 443 for scheme '"+originScheme+"', defaulting to empty")
 				originPort = ""
 			} else {
 				originPort = parsedOrigin.Port()
 			}
 
 			originPortForRings := ""
-			if parsedOrigin.Port() == "" && parsedOrigin.Scheme == "http" {
+			if parsedOrigin.Port() == "" && originScheme == "http" {
 				originPortForRings = "80"
-			} else if parsedOrigin.Port() == "" && parsedOrigin.Scheme == "https" {
+			} else if parsedOrigin.Port() == "" && originScheme == "https" {
 				originPortForRings = "443"
 			} else {
 				originPortForRings = parsedOrigin.Port()
