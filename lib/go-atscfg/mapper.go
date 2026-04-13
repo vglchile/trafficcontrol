@@ -17,6 +17,7 @@ type mapperRule struct {
 	OriginFQDN           string
 	OriginPath           string
 	OriginPathNoPlaylist string
+	OriginPort           string
 	Backups              []string // each element is a hostname
 	InsertionRing        []string // each element is a hostname
 	Insertion            bool
@@ -68,23 +69,74 @@ func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperR
 
 			// Parse the Origin URL to extract FQDN and Path
 			parsedOrigin, err := url.Parse(originURL)
-			var originFQDN, originPath string
 			if err != nil || parsedOrigin.Host == "" {
-				warnings = append(warnings, "mapper rule has invalid origin URL '"+originURL+"', using as-is")
-				originFQDN = originURL
-				originPath = ""
+				warnings = append(warnings, "mapper rule has invalid origin URL '"+originURL+"', skipping line...")
+				continue
+			}
+			originFQDN := parsedOrigin.Hostname()
+			originPath := parsedOrigin.Path
+			originScheme := parsedOrigin.Scheme
+
+			originPort := ""
+			if parsedOrigin.Port() == "80" && parsedOrigin.Scheme != "http" {
+				warnings = append(warnings, "mapper rule has OriginPort set to 80 for scheme '"+parsedOrigin.Scheme+"', defaulting to empty")
+				originPort = ""
+			} else if parsedOrigin.Port() == "443" && parsedOrigin.Scheme != "https" {
+				warnings = append(warnings, "mapper rule has OriginPort set to 443 for scheme '"+parsedOrigin.Scheme+"', defaulting to empty")
+				originPort = ""
 			} else {
-				originFQDN = parsedOrigin.Hostname()
-				originPath = parsedOrigin.Path
+				originPort = parsedOrigin.Port()
+			}
+
+			originPortForRings := ""
+			if parsedOrigin.Port() == "" && parsedOrigin.Scheme == "http" {
+				originPortForRings = "80"
+			} else if parsedOrigin.Port() == "" && parsedOrigin.Scheme == "https" {
+				originPortForRings = "443"
+			} else {
+				originPortForRings = parsedOrigin.Port()
 			}
 
 			// OriginPathNoPlaylist: remove the first path segment matching *.m3u8 and everything after it
 			reM3u8 := regexp.MustCompile(`/[^/]*\.m3u8.*$`)
 			originPathNoPlaylist := reM3u8.ReplaceAllString(originPath, "")
+			originURLNoPlaylist := ""
 
-			originScheme := parsedOrigin.Scheme
-			originURL = originScheme + "://" + originFQDN + originPath
-			originURLNoPlaylist := originScheme + "://" + originFQDN + originPathNoPlaylist + "/"
+			if originPort != "" {
+				originURL = originScheme + "://" + originFQDN + ":" + originPort + originPath
+				originURLNoPlaylist = originScheme + "://" + originFQDN + ":" + originPort + originPathNoPlaylist + "/"
+			} else {
+				originURL = originScheme + "://" + originFQDN + originPath
+				originURLNoPlaylist = originScheme + "://" + originFQDN + originPathNoPlaylist + "/"
+			}
+
+			// Boolean parsing. If invalid -> skips
+			insertion := strings.EqualFold(Insertion, "true")
+			parsedInsertion, err := strconv.ParseBool(Insertion)
+			if err != nil {
+				warnings = append(warnings, "mapper rule has invalid Insertion value '"+Insertion+"', skipping line...")
+				continue
+			} else {
+				insertion = parsedInsertion
+			}
+
+			backupIsProxy := strings.EqualFold(BackupIsProxy, "true")
+			parsedBackupIsProxy, err := strconv.ParseBool(BackupIsProxy)
+			if err != nil {
+				warnings = append(warnings, "mapper rule has invalid BackupIsProxy value '"+BackupIsProxy+"', skipping line...")
+				continue
+			} else {
+				backupIsProxy = parsedBackupIsProxy
+			}
+
+			inserterIsProxy := strings.EqualFold(InserterIsProxy, "true")
+			parsedInserterIsProxy, err := strconv.ParseBool(InserterIsProxy)
+			if err != nil {
+				warnings = append(warnings, "mapper rule has invalid InserterIsProxy value '"+InserterIsProxy+"', skipping line...")
+				continue
+			} else {
+				inserterIsProxy = parsedInserterIsProxy
+			}
 
 			// Backups: comma-separated list, extract hostnames only
 			backupParts := strings.Split(Backups, ",")
@@ -97,33 +149,18 @@ func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperR
 				}
 				host := backupURL.Hostname()
 				var port string
-				if backupURL.Port() == "" {
+				if backupURL.Port() == "" && backupURL.Scheme == "http" {
 					port = "80"
+				} else if backupURL.Port() == "" && backupURL.Scheme == "https" {
+					port = "443"
 				} else {
 					port = backupURL.Port()
 				}
 				backups = append(backups, host+":"+port)
 			}
 
-			// Insertion boolean
-			insertion := strings.EqualFold(Insertion, "true")
-			backupIsProxy := true
-			if len(fields) >= 8 {
-				parsedBackupIsProxy, err := strconv.ParseBool(BackupIsProxy)
-				if err != nil {
-					warnings = append(warnings, "mapper rule has invalid BackupIsProxy value '"+BackupIsProxy+"', defaulting to true")
-				} else {
-					backupIsProxy = parsedBackupIsProxy
-				}
-			}
-			inserterIsProxy := true
-			if len(fields) >= 9 {
-				parsedInserterIsProxy, err := strconv.ParseBool(InserterIsProxy)
-				if err != nil {
-					warnings = append(warnings, "mapper rule has invalid InserterIsProxy value '"+InserterIsProxy+"', defaulting to true")
-				} else {
-					inserterIsProxy = parsedInserterIsProxy
-				}
+			if !backupIsProxy {
+				backups = append(backups, originFQDN + ":" + originPortForRings)
 			}
 
 			// InsertionRing: comma-separated list, extract hostnames only
@@ -137,12 +174,18 @@ func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperR
 				}
 				host := insertionURL.Hostname()
 				var port string
-				if insertionURL.Port() == "" {
+				if insertionURL.Port() == "" && insertionURL.Scheme == "http" {
 					port = "80"
+				} else if insertionURL.Port() == "" && insertionURL.Scheme == "https" {
+					port = "443"
 				} else {
 					port = insertionURL.Port()
 				}
 				insertionRing = append(insertionRing, host+":"+port)
+			}
+
+			if !inserterIsProxy {
+				insertionRing = append(insertionRing, originFQDN + ":" + originPortForRings)
 			}
 
 			mapperRules[xmlid] = append(mapperRules[xmlid], mapperRule{
@@ -155,6 +198,7 @@ func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperR
 				OriginFQDN:           originFQDN,
 				OriginPath:           originPath,
 				OriginPathNoPlaylist: originPathNoPlaylist,
+				OriginPort:           originPort,
 				Backups:              backups,
 				InsertionRing:        insertionRing,
 				Insertion:            insertion,
