@@ -78,10 +78,10 @@ func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperR
 			originScheme := parsedOrigin.Scheme
 
 			originPort := ""
-			if parsedOrigin.Port() == "80" && parsedOrigin.Scheme != "http" {
+			if parsedOrigin.Port() == "80" && parsedOrigin.Scheme == "http" {
 				warnings = append(warnings, "mapper rule has OriginPort set to 80 for scheme '"+parsedOrigin.Scheme+"', defaulting to empty")
 				originPort = ""
-			} else if parsedOrigin.Port() == "443" && parsedOrigin.Scheme != "https" {
+			} else if parsedOrigin.Port() == "443" && parsedOrigin.Scheme == "https" {
 				warnings = append(warnings, "mapper rule has OriginPort set to 443 for scheme '"+parsedOrigin.Scheme+"', defaulting to empty")
 				originPort = ""
 			} else {
