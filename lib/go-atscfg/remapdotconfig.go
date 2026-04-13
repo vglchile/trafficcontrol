@@ -400,14 +400,12 @@ func getServerConfigRemapDotConfigForEdge(
 
 		mapperRemapText := ""
 		requestFQDNs, err := getDSRequestFQDNs(&ds, dsRegexes[tc.DeliveryServiceName(*ds.XMLID)], server, cdnDomain)
-		log.Infof("Got request FQDNs for ds '%s': %+v", *ds.XMLID, requestFQDNs)
 		if err != nil {
 			warnings = append(warnings, "error getting ds '"+*ds.XMLID+"' request fqdns, skipping! Error: "+err.Error())
 			continue
 		}
 
 		for _, requestFQDN := range requestFQDNs {
-			log.Infof("Processing request FQDN '%s' for ds '%s'", requestFQDN, *ds.XMLID)
 			remapLines, err := makeEdgeDSDataRemapLines(ds, requestFQDN, server, cdnDomain)
 			if err != nil {
 				warnings = append(warnings, "DS '"+*ds.XMLID+"' - skipping! : "+err.Error())
@@ -415,7 +413,6 @@ func getServerConfigRemapDotConfigForEdge(
 			}
 
 			for _, line := range remapLines {
-				log.Infof("Processing remap line with from '%s' to '%s' for ds '%s'", line.From, line.To, *ds.XMLID)
 				profileremapConfigParams := []tc.Parameter{}
 				if ds.ProfileID != nil {
 					profileremapConfigParams = profilesRemapConfigParams[*ds.ProfileID]
@@ -445,7 +442,6 @@ func getServerConfigRemapDotConfigForEdge(
 			}
 
 			for _, rule := range rules {
-				log.Infof("Processing mapper rule for ds '%s' with origin '%s' associiated to Request: '%s'", *ds.XMLID, rule.OriginURL, requestFQDN)
 				mapFromNoPlaylist := ""
 				mapFromWithPlaylist := ""
 				subRule := ""
@@ -471,7 +467,6 @@ func getServerConfigRemapDotConfigForEdge(
 				}
 
 				mapFromNoPlaylist, err = appendPathToURL(mapFromNoPlaylist, rule.OriginPathNoPlaylist)
-				log.Infof("MapFromNoPlaylist: %s", mapFromNoPlaylist)
 				if err != nil {
 					return "", warnings, errors.New("adding origin URL path to remap source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
 					continue
