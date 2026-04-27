@@ -25,7 +25,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	
+
 	"github.com/apache/trafficcontrol/lib/go-log"
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/lib/go-util"
@@ -338,6 +338,7 @@ func getServerConfigRemapDotConfigForEdge(
 	textLines := []string{}
 	mapperLines := []string{}
 	mapperRequestLines := []string{}
+	mapperModeName, _ := parseMapperMode(mapperMode)
 
 	for _, ds := range dses {
 		if !hasRequiredCapabilities(serverCapabilities[*server.ID], dsRequiredCapabilities[*ds.ID]) {
@@ -398,7 +399,7 @@ func getServerConfigRemapDotConfigForEdge(
 			}
 
 			// Mapper Support Block
-			if mapperMode == "" || mapperMode == "none" {
+			if mapperModeName == "" || mapperModeName == "none" {
 				warnings = append(warnings, "mapper_mode is either unset or set to an invalid parameter: '"+mapperMode+"', no mapper rules will be applied")
 				continue
 			}
@@ -409,66 +410,78 @@ func getServerConfigRemapDotConfigForEdge(
 			}
 
 			for _, rule := range rules {
-				mapFromNoPlaylist := ""
-				mapFromWithPlaylist := ""
-				subRule := ""
-				subRule2 := ""
-				if rule.RequestPort == "" && ( rule.RequestScheme == "http" || rule.RequestScheme == "https") {
-					mapFromNoPlaylist = rule.RequestScheme + "://" + requestFQDN
-				} else {
-					mapFromNoPlaylist = rule.RequestScheme + "://" + requestFQDN + ":" + rule.RequestPort
-				}
 				profileremapConfigParams := []tc.Parameter{}
 				if ds.ProfileID != nil {
 					profileremapConfigParams = profilesRemapConfigParams[*ds.ProfileID]
 				}
-				mapperRemapWarns := []string{}
+				buildMapperLine := buildEdgeRemapLine
+				if rule.RuleType == "redirect" {
+					buildMapperLine = buildEdgeRedirectLine
+				}
+				requestSchemes := []string{rule.RequestScheme}
+				if rule.LegacyShortFormat {
+					requestSchemes = []string{"http", "https"}
+				}
 
-				if rule.Insertion && rule.OriginPath != "" {
-					mapFromWithPlaylist, err = appendPathToURL(mapFromNoPlaylist, rule.OriginPath)
+				for _, requestScheme := range requestSchemes {
+					mapFromNoPlaylist := ""
+					mapFromWithPlaylist := ""
+					subRule := ""
+					subRule2 := ""
+					mapperRemapWarns := []string{}
+
+					if rule.LegacyShortFormat || (rule.RequestPort == "" && (requestScheme == "http" || requestScheme == "https")) {
+						mapFromNoPlaylist = requestScheme + "://" + requestFQDN
+					} else {
+						mapFromNoPlaylist = requestScheme + "://" + requestFQDN + ":" + rule.RequestPort
+					}
+
+					if rule.Insertion && rule.OriginPath != "" {
+						mapFromWithPlaylist, err = appendPathToURL(mapFromNoPlaylist, rule.OriginPath)
+						if err != nil {
+							return "", warnings, errors.New("adding origin URL path to remap source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
+							continue
+						}
+						subRule, mapperRemapWarns, err = buildMapperLine(atsMajorVersion, server, serverPackageParamData, subRule, ds, mapFromWithPlaylist, rule.OriginURL, profileremapConfigParams, cacheGroups, nameTopologies)
+					}
+
+					mapFromNoPlaylist, err = appendPathToURL(mapFromNoPlaylist, rule.OriginPathNoPlaylist)
+					mapFromNoPlaylist += "/"
 					if err != nil {
 						return "", warnings, errors.New("adding origin URL path to remap source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
 						continue
 					}
-					subRule, mapperRemapWarns, err = buildEdgeRemapLine(atsMajorVersion, server, serverPackageParamData, subRule, ds, mapFromWithPlaylist, rule.OriginURL, profileremapConfigParams, cacheGroups, nameTopologies)
-				}
+					subRule2, mapperRemapWarns, err = buildMapperLine(atsMajorVersion, server, serverPackageParamData, subRule2, ds, mapFromNoPlaylist, rule.OriginURLNoPlaylist, profileremapConfigParams, cacheGroups, nameTopologies)
 
-				mapFromNoPlaylist, err = appendPathToURL(mapFromNoPlaylist, rule.OriginPathNoPlaylist)
-				mapFromNoPlaylist += "/"
-				if err != nil {
-					return "", warnings, errors.New("adding origin URL path to remap source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
-					continue
-				}
-				subRule2, mapperRemapWarns, err = buildEdgeRemapLine(atsMajorVersion, server, serverPackageParamData, subRule2, ds, mapFromNoPlaylist, rule.OriginURLNoPlaylist, profileremapConfigParams, cacheGroups, nameTopologies)
+					warnings = append(warnings, mapperRemapWarns...)
 
-				warnings = append(warnings, mapperRemapWarns...)
-				
-				if err != nil {
-					return "", warnings, err
-				}
-				if subRule != "" {
-					mapperRemapText += subRule + "\n" + subRule2 + "\n"
-				} else {
-					mapperRemapText += subRule2 + "\n"
-				}
+					if err != nil {
+						return "", warnings, err
+					}
+					if subRule != "" {
+						mapperRemapText += subRule + "\n" + subRule2 + "\n"
+					} else {
+						mapperRemapText += subRule2 + "\n"
+					}
 
-				if mapFromWithPlaylist != "" {
-					mapperRequestLines = append(mapperRequestLines, mapFromWithPlaylist)
+					if mapFromWithPlaylist != "" {
+						mapperRequestLines = append(mapperRequestLines, mapFromWithPlaylist)
+					}
+					mapperRequestLines = append(mapperRequestLines, mapFromNoPlaylist)
 				}
-				mapperRequestLines = append(mapperRequestLines, mapFromNoPlaylist)
 			}
 		}
 		mapperLines = append(mapperLines, mapperRemapText)
 		textLines = append(textLines, remapText)
 	}
 
-	for _,requestLine := range mapperRequestLines {
+	for _, requestLine := range mapperRequestLines {
 		textLines = removeDuplicates(textLines, requestLine)
 	}
 
 	text := header
 	sort.Strings(textLines)
-	if mapperMode == "prepend" {
+	if mapperModeName == "prepend" {
 		text += "\n### Mapper ###\n\n" + strings.Join(mapperLines, "") + "\n### ATC ###\n\n" + strings.Join(textLines, "")
 	} else {
 		text += "\n### ATC ###\n\n" + strings.Join(textLines, "") + "\n### Mapper ###\n\n" + strings.Join(mapperLines, "")
@@ -510,6 +523,133 @@ func buildEdgeRemapLine(
 		text += "map	" + mapFrom + "     " + mapTo + ` @plugin=dscp_remap.so @pparam=` + strconv.Itoa(*ds.DSCP)
 	} else {
 		text += "map	" + mapFrom + "     " + mapTo + ` @plugin=header_rewrite.so @pparam=dscp/set_dscp_` + strconv.Itoa(*ds.DSCP) + ".config"
+	}
+
+	if *ds.Topology != "" {
+		topoTxt, err := makeDSTopologyHeaderRewriteTxt(ds, tc.CacheGroupName(*server.Cachegroup), nameTopologies[TopologyName(*ds.Topology)], cacheGroups)
+		if err != nil {
+			return "", warnings, err
+		}
+		text += topoTxt
+	} else if (ds.EdgeHeaderRewrite != nil && *ds.EdgeHeaderRewrite != "") || (ds.ServiceCategory != nil && *ds.ServiceCategory != "") || (ds.MaxOriginConnections != nil && *ds.MaxOriginConnections != 0) {
+		text += ` @plugin=header_rewrite.so @pparam=` + edgeHeaderRewriteConfigFileName(*ds.XMLID)
+	}
+
+	dsConfigParamsMap := classifyConfigParams(remapConfigParams)
+
+	if ds.SigningAlgorithm != nil && *ds.SigningAlgorithm != "" {
+		if *ds.SigningAlgorithm == tc.SigningAlgorithmURLSig {
+			text += ` @plugin=url_sig.so @pparam=url_sig_` + *ds.XMLID + ".config" +
+				paramsStringFor(dsConfigParamsMap["url_sig.pparam"], &warnings)
+		} else if *ds.SigningAlgorithm == tc.SigningAlgorithmURISigning {
+			text += ` @plugin=uri_signing.so @pparam=uri_signing_` + *ds.XMLID + ".config" +
+				paramsStringFor(dsConfigParamsMap["uri_signing.pparam"], &warnings)
+		}
+	}
+
+	// Form the cachekey args string, qstring ignore, then
+	// remap.config then cachekey.config
+	var cachekeyArgs string
+
+	if ds.QStringIgnore != nil {
+		if *ds.QStringIgnore == tc.QueryStringIgnoreDropAtEdge {
+			dqsFile := "drop_qstring.config"
+			text += ` @plugin=regex_remap.so @pparam=` + dqsFile
+		} else if *ds.QStringIgnore == tc.QueryStringIgnoreIgnoreInCacheKeyAndPassUp {
+			cachekeyArgs = getQStringIgnoreRemap(atsMajorVersion)
+		}
+	}
+
+	if 0 < len(dsConfigParamsMap) {
+		cachekeyArgs += cachekeyArgsFor(dsConfigParamsMap, &warnings)
+	}
+
+	if cachekeyArgs != "" {
+		text += " @plugin=cachekey.so" + cachekeyArgs
+	}
+
+	// Note: should use full path here?
+	if ds.RegexRemap != nil && *ds.RegexRemap != "" {
+		text += ` @plugin=regex_remap.so @pparam=regex_remap_` + *ds.XMLID + ".config"
+	}
+
+	rangeReqTxt := ""
+	if ds.RangeRequestHandling != nil {
+		crr := false
+
+		if *ds.RangeRequestHandling == tc.RangeRequestHandlingBackgroundFetch {
+			rangeReqTxt = " @plugin=background_fetch.so @pparam=--config=bg_fetch.config" +
+				paramsStringFor(dsConfigParamsMap["background_fetch.pparam"], &warnings)
+		} else if *ds.RangeRequestHandling == tc.RangeRequestHandlingSlice && ds.RangeSliceBlockSize != nil {
+
+			rangeReqTxt = " @plugin=slice.so @pparam=--blockbytes=" + strconv.Itoa(*ds.RangeSliceBlockSize) +
+				paramsStringFor(dsConfigParamsMap["slice.pparam"], &warnings)
+			crr = true
+		} else if *ds.RangeRequestHandling == tc.RangeRequestHandlingCacheRangeRequest {
+			crr = true
+		}
+
+		if crr {
+			rangeReqTxt += " @plugin=cache_range_requests.so " +
+				paramsStringFor(dsConfigParamsMap["cache_range_requests.pparam"], &warnings)
+		}
+	}
+
+	remapText := ""
+	if ds.RemapText != nil {
+		remapText = *ds.RemapText
+	}
+
+	// Temporary hack for moving the range directive into the raw remap text
+	if strings.Contains(remapText, RemapConfigRangeDirective) {
+		remapText = strings.Replace(remapText, RemapConfigRangeDirective, rangeReqTxt, 1)
+	} else {
+		text += rangeReqTxt
+	}
+
+	if remapText != "" {
+		text += " " + remapText
+	}
+
+	if ds.FQPacingRate != nil && *ds.FQPacingRate > 0 {
+		text += ` @plugin=fq_pacing.so @pparam=--rate=` + strconv.Itoa(*ds.FQPacingRate)
+	}
+
+	return text, warnings, nil
+}
+
+// Added for Mapper v2.0 compatibility. Builds a redirect rule instead of a remap rule using the same parameters as buildEdgeRemapLine. Returns the redirect line, any warnings, and any error.
+func buildEdgeRedirectLine(
+	atsMajorVersion int,
+	server *Server,
+	pData map[string]string,
+	text string,
+	ds DeliveryService,
+	mapFrom string,
+	mapTo string,
+	remapConfigParams []tc.Parameter,
+	cacheGroups map[tc.CacheGroupName]tc.CacheGroupNullable,
+	nameTopologies map[TopologyName]tc.Topology,
+) (string, []string, error) {
+	warnings := []string{}
+	// ds = 'remap' in perl
+	mapFrom = strings.Replace(mapFrom, `__http__`, *server.HostName, -1)
+
+	isLastCache, err := serverIsLastCacheForDS(server, &ds, nameTopologies, cacheGroups)
+	if err != nil {
+		return "", warnings, errors.New("determining if cache is the last tier: " + err.Error())
+	}
+
+	// if this remap is going to a parent, use http not https.
+	// cache-to-cache communication inside the CDN is always http (though that's likely to change in the future)
+	if !isLastCache {
+		mapTo = strings.Replace(mapTo, `https://`, `http://`, -1)
+	}
+
+	if _, hasDSCPRemap := pData["dscp_remap"]; hasDSCPRemap {
+		text += "redirect	" + mapFrom + "     " + mapTo + ` @plugin=dscp_remap.so @pparam=` + strconv.Itoa(*ds.DSCP)
+	} else {
+		text += "redirect	" + mapFrom + "     " + mapTo + ` @plugin=header_rewrite.so @pparam=dscp/set_dscp_` + strconv.Itoa(*ds.DSCP) + ".config"
 	}
 
 	if *ds.Topology != "" {
@@ -1002,4 +1142,5 @@ func removeDuplicates(mappings []string, target string) []string {
 	}
 	return mappings
 }
+
 //UTILS END

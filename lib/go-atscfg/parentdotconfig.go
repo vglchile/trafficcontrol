@@ -322,6 +322,9 @@ func MakeParentDotConfig(
 		rules, ok := mapperRules[*ds.XMLID]
 		if ok {
 			for _, rule := range rules {
+				if rule.RuleType == "redirect" {
+					continue // No rule should be applied to parent.config if the rule type is "redirect".
+				}
 				prefixLineWithPlaylist := ""
 				prefixLineNoPlaylist := ""
 				if rule.OriginPath != "" {

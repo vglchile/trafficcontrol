@@ -193,7 +193,7 @@ func TestMakeParentDotConfigMapperParentIsProxy(t *testing.T) {
 		tc.Parameter{
 			Name:       "mapper_map",
 			ConfigFile: "mapper_rules.config",
-			Value:      "0 ds-mapper http://origin.example.net/live/channel.m3u8 http://backup.example.net true http://inserter.example.net false false",
+			Value:      "0 ds-mapper map 1 80 http://origin.example.net/live/channel.m3u8 http://backup.example.net true http://inserter.example.net false false",
 			Profiles:   []byte(`["serverprofile"]`),
 		},
 	}
@@ -235,20 +235,118 @@ func TestMakeParentDotConfigMapperParentIsProxy(t *testing.T) {
 	}
 	txt := cfg.Text
 
-	if !strings.Contains(txt, `dest_host=origin.example.net prefix=/live/channel.m3u8 scheme=http parent="inserter.example.net:80" go_direct=true parent_is_proxy=false`) {
+	if !strings.Contains(txt, `dest_host=origin.example.net prefix=/live/channel.m3u8 scheme=http parent="inserter.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false`) {
 		t.Fatalf("expected insertion http mapper line with parent_is_proxy=false, actual: %s", txt)
 	}
-	if !strings.Contains(txt, `dest_host=origin.example.net prefix=/live/channel.m3u8 scheme=https parent="inserter.example.net:80" go_direct=true parent_is_proxy=false`) {
+	if !strings.Contains(txt, `dest_host=origin.example.net prefix=/live/channel.m3u8 scheme=https parent="inserter.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false`) {
 		t.Fatalf("expected insertion https mapper line with parent_is_proxy=false, actual: %s", txt)
 	}
-	if !strings.Contains(txt, `dest_host=origin.example.net prefix=/live scheme=http parent="backup.example.net:80" go_direct=true parent_is_proxy=false`) {
+	if !strings.Contains(txt, `dest_host=origin.example.net prefix=/live scheme=http parent="backup.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false`) {
 		t.Fatalf("expected backup http mapper line with parent_is_proxy=false, actual: %s", txt)
 	}
-	if !strings.Contains(txt, `dest_host=origin.example.net prefix=/live scheme=https parent="backup.example.net:80" go_direct=true parent_is_proxy=false`) {
+	if !strings.Contains(txt, `dest_host=origin.example.net prefix=/live scheme=https parent="backup.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false`) {
 		t.Fatalf("expected backup https mapper line with parent_is_proxy=false, actual: %s", txt)
 	}
 	if count := strings.Count(txt, "parent_is_proxy=false"); count != 4 {
 		t.Fatalf("expected 4 parent_is_proxy=false mapper entries, got %d in: %s", count, txt)
+	}
+}
+
+func TestMakeParentDotConfigMapperRedirectSkipped(t *testing.T) {
+	hdr := &ParentConfigOpts{AddComments: false, HdrComment: "myHeaderComment"}
+
+	ds := makeParentDS()
+	dsType := tc.DSTypeHTTP
+	ds.Type = &dsType
+	ds.XMLID = util.StrPtr("ds-mapper")
+	ds.OrgServerFQDN = util.StrPtr("http://ds-mapper.example.net")
+
+	dses := []DeliveryService{*ds}
+
+	parentConfigParams := []tc.Parameter{
+		tc.Parameter{
+			Name:       ParentConfigParamQStringHandling,
+			ConfigFile: "parent.config",
+			Value:      "myQStringHandlingParam",
+			Profiles:   []byte(`["serverprofile"]`),
+		},
+		tc.Parameter{
+			Name:       ParentConfigParamAlgorithm,
+			ConfigFile: "parent.config",
+			Value:      tc.AlgorithmConsistentHash,
+			Profiles:   []byte(`["serverprofile"]`),
+		},
+		tc.Parameter{
+			Name:       ParentConfigParamQString,
+			ConfigFile: "parent.config",
+			Value:      "myQstringParam",
+			Profiles:   []byte(`["serverprofile"]`),
+		},
+	}
+
+	serverParams := []tc.Parameter{
+		tc.Parameter{
+			Name:       "trafficserver",
+			ConfigFile: "package",
+			Value:      "7",
+			Profiles:   []byte(`["global"]`),
+		},
+		tc.Parameter{
+			Name:       "mapper_mode",
+			ConfigFile: "vgl_mapper.config",
+			Value:      "enabled",
+			Profiles:   []byte(`["serverprofile"]`),
+		},
+		tc.Parameter{
+			Name:       "mapper_map",
+			ConfigFile: "mapper_rules.config",
+			Value:      "0 ds-mapper redirect 1 80 http://origin.example.net/live/channel.m3u8 http://backup.example.net true http://inserter.example.net false false",
+			Profiles:   []byte(`["serverprofile"]`),
+		},
+	}
+
+	server := makeTestParentServer()
+
+	mid := makeTestParentServer()
+	mid.Cachegroup = util.StrPtr("midCG")
+	mid.HostName = util.StrPtr("mymid0")
+	mid.ID = util.IntPtr(45)
+	setIP(mid, "192.168.2.2")
+
+	servers := []Server{*server, *mid}
+	topologies := []tc.Topology{}
+	serverCapabilities := map[int]map[ServerCapability]struct{}{}
+	dsRequiredCapabilities := map[int]map[ServerCapability]struct{}{}
+
+	eCG := &tc.CacheGroupNullable{}
+	eCG.Name = server.Cachegroup
+	eCG.ID = server.CachegroupID
+	eCG.ParentName = mid.Cachegroup
+	eCG.ParentCachegroupID = mid.CachegroupID
+	eCGType := tc.CacheGroupEdgeTypeName
+	eCG.Type = &eCGType
+
+	mCG := &tc.CacheGroupNullable{}
+	mCG.Name = mid.Cachegroup
+	mCG.ID = mid.CachegroupID
+	mCGType := tc.CacheGroupMidTypeName
+	mCG.Type = &mCGType
+
+	cgs := []tc.CacheGroupNullable{*eCG, *mCG}
+	dss := []DeliveryServiceServer{{Server: *server.ID, DeliveryService: *ds.ID}}
+	cdn := &tc.CDN{DomainName: "cdndomain.example", Name: "my-cdn-name"}
+
+	cfg, err := MakeParentDotConfig(dses, server, servers, topologies, serverParams, parentConfigParams, serverCapabilities, dsRequiredCapabilities, cgs, dss, cdn, hdr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	txt := cfg.Text
+
+	if strings.Contains(txt, `dest_host=origin.example.net`) {
+		t.Fatalf("expected redirect mapper rule to skip parent.config mapper lines, actual: %s", txt)
+	}
+	if !strings.Contains(txt, `dest_domain=ds-mapper.example.net`) {
+		t.Fatalf("expected standard parent.config entry to remain, actual: %s", txt)
 	}
 }
 

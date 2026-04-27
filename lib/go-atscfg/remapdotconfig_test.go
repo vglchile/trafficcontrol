@@ -45,6 +45,145 @@ func makeTestRemapServer() *Server {
 	return server
 }
 
+func makeMapperRemapTestOutput(t *testing.T, mapperMode string, mapperMap string) string {
+	t.Helper()
+
+	server := makeTestRemapServer()
+	server.Type = "EDGE"
+
+	ds := DeliveryService{}
+	ds.ID = util.IntPtr(48)
+	dsType := tc.DSType("HTTP_LIVE")
+	ds.Type = &dsType
+	ds.OrgServerFQDN = util.StrPtr("origin.example.test")
+	ds.MidHeaderRewrite = util.StrPtr("mymidrewrite")
+	ds.RangeRequestHandling = util.IntPtr(0)
+	ds.RemapText = util.StrPtr("myremaptext")
+	ds.EdgeHeaderRewrite = util.StrPtr("myedgeheaderrewrite")
+	ds.SigningAlgorithm = util.StrPtr("url_sig")
+	ds.XMLID = util.StrPtr("mydsname")
+	ds.QStringIgnore = util.IntPtr(0)
+	ds.RegexRemap = util.StrPtr("myregexremap")
+	ds.FQPacingRate = util.IntPtr(0)
+	ds.DSCP = util.IntPtr(0)
+	ds.RoutingName = util.StrPtr("myroutingname")
+	ds.MultiSiteOrigin = util.BoolPtr(false)
+	ds.OriginShield = util.StrPtr("myoriginshield")
+	ds.ProfileID = util.IntPtr(49)
+	ds.Protocol = util.IntPtr(0)
+	ds.AnonymousBlockingEnabled = util.BoolPtr(false)
+	ds.Active = util.BoolPtr(true)
+	dses := []DeliveryService{ds}
+
+	dss := []DeliveryServiceServer{{
+		Server:          *server.ID,
+		DeliveryService: *ds.ID,
+	}}
+
+	dsRegexes := []tc.DeliveryServiceRegexes{{
+		DSName: *ds.XMLID,
+		Regexes: []tc.DeliveryServiceRegex{{
+			Type:      string(tc.DSMatchTypeHostRegex),
+			SetNumber: 0,
+			Pattern:   "myregexpattern",
+		}},
+	}}
+
+	serverParams := []tc.Parameter{
+		{
+			Name:       "trafficserver",
+			ConfigFile: "package",
+			Value:      "7",
+			Profiles:   []byte(`["global"]`),
+		},
+		{
+			Name:       "mapper_mode",
+			ConfigFile: "vgl_mapper.config",
+			Value:      mapperMode,
+			Profiles:   []byte(`["MyProfile"]`),
+		},
+		{
+			Name:       "mapper_map",
+			ConfigFile: "mapper_rules.config",
+			Value:      mapperMap,
+			Profiles:   []byte(`["MyProfile"]`),
+		},
+	}
+
+	remapConfigParams := []tc.Parameter{
+		{
+			Name:       "cachekey.pparam",
+			ConfigFile: "remap.config",
+			Value:      "--cachekeykey=cachekeyval",
+			Profiles:   []byte(`["dsprofile"]`),
+		},
+	}
+
+	cdn := &tc.CDN{
+		DomainName: "cdndomain.example",
+		Name:       "my-cdn-name",
+	}
+
+	topologies := []tc.Topology{}
+	cgs := []tc.CacheGroupNullable{}
+	serverCapabilities := map[int]map[ServerCapability]struct{}{}
+	dsRequiredCapabilities := map[int]map[ServerCapability]struct{}{}
+
+	cfg, err := MakeRemapDotConfig(server, dses, dss, dsRegexes, serverParams, cdn, remapConfigParams, topologies, cgs, serverCapabilities, dsRequiredCapabilities, &RemapDotConfigOpts{HdrComment: "myHeaderComment"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg.Text
+}
+
+func TestMakeRemapDotConfigMapperRuleTypes(t *testing.T) {
+	testCases := []struct {
+		name                string
+		ruleType            string
+		expectedDirective   string
+		unexpectedDirective string
+	}{
+		{name: "map", ruleType: "map", expectedDirective: "map", unexpectedDirective: "redirect"},
+		{name: "redirect", ruleType: "redirect", expectedDirective: "redirect", unexpectedDirective: "map"},
+		{name: "invalid defaults to map", ruleType: "bogus", expectedDirective: "map", unexpectedDirective: "redirect"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			mapperMap := "0 mydsname " + testCase.ruleType + " 1 80 http://origin.example.test/live/channel.m3u8 http://backup.example.net true http://inserter.example.net false false"
+			txt := makeMapperRemapTestOutput(t, "prepend", mapperMap)
+
+			if !strings.Contains(txt, testCase.expectedDirective+"\thttp://myregexpattern/live/channel.m3u8") {
+				t.Fatalf("expected mapper playlist line to use %s, actual: %s", testCase.expectedDirective, txt)
+			}
+			if !strings.Contains(txt, testCase.expectedDirective+"\thttp://myregexpattern/live/") {
+				t.Fatalf("expected mapper no-playlist line to use %s, actual: %s", testCase.expectedDirective, txt)
+			}
+			if strings.Contains(txt, testCase.unexpectedDirective+"\thttp://myregexpattern/live/channel.m3u8") {
+				t.Fatalf("did not expect mapper playlist line to use %s, actual: %s", testCase.unexpectedDirective, txt)
+			}
+		})
+	}
+}
+
+func TestMakeRemapDotConfigLegacyMapperDefaultsToMap(t *testing.T) {
+	mapperMap := "0 mydsname http://origin.example.test/live/channel.m3u8 http://backup.example.net unused"
+	txt := makeMapperRemapTestOutput(t, "prepend 1", mapperMap)
+
+	if !strings.Contains(txt, "map\thttp://myregexpattern/live/") {
+		t.Fatalf("expected legacy mapper rule to emit http map line, actual: %s", txt)
+	}
+	if !strings.Contains(txt, "map\thttps://myregexpattern/live/") {
+		t.Fatalf("expected legacy mapper rule to emit https map line, actual: %s", txt)
+	}
+	if strings.Contains(txt, "redirect\thttp://myregexpattern/live/") || strings.Contains(txt, "redirect\thttps://myregexpattern/live/") {
+		t.Fatalf("did not expect legacy mapper rule to emit redirect lines, actual: %s", txt)
+	}
+	if strings.Contains(txt, "http://myregexpattern/live/channel.m3u8") {
+		t.Fatalf("did not expect legacy mapper rule to emit playlist insertion lines, actual: %s", txt)
+	}
+}
+
 func TestMakeRemapDotConfig0(t *testing.T) {
 	hdr := "myHeaderComment"
 
