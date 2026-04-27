@@ -325,10 +325,16 @@ func MakeParentDotConfig(
 				if rule.RuleType == "redirect" {
 					continue // No rule should be applied to parent.config if the rule type is "redirect".
 				}
-				prefixLineWithPlaylist := ""
+				if rule.OriginPort == "" && rule.OriginScheme == "http" {
+					rule.OriginPort = "80"
+				} else if rule.OriginPort == "" && rule.OriginScheme == "https" {
+					rule.OriginPort = "443"
+				}
+				// prefixLineWithPlaylist := ""
 				prefixLineNoPlaylist := ""
+				ignoreSelfDetect := " ignore_self_detect=true" // This should later be implemented in Mapper Logics
 				if rule.OriginPath != "" {
-					prefixLineWithPlaylist = " prefix=" + rule.OriginPath
+					// prefixLineWithPlaylist = " prefix=" + rule.OriginPath
 					prefixLineNoPlaylist = " prefix=" + rule.OriginPathNoPlaylist
 				}
 				if rule.Insertion && (rule.OriginPath != rule.OriginPathNoPlaylist) {
@@ -337,8 +343,8 @@ func MakeParentDotConfig(
 					if !rule.InserterIsProxy {
 						insertionProxySuffix = " parent_is_proxy=false"
 					}
-					mapperLine := "dest_host=" + rule.OriginFQDN + prefixLineWithPlaylist + " scheme=http parent=\"" + insertionParent + "\" go_direct=true" + insertionProxySuffix + "\n"
-					mapperLine += "dest_host=" + rule.OriginFQDN + prefixLineWithPlaylist + " scheme=https parent=\"" + insertionParent + "\" go_direct=true" + insertionProxySuffix + "\n"
+					mapperLine := "url_regex=" + "m3u8" + " path=" + rule.OriginPathNoPlaylist + " scheme=http parent=\"" + insertionParent + "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true" + insertionProxySuffix + "\n"
+					mapperLine += "url_regex=" + "m3u8" + " path=" + rule.OriginPathNoPlaylist + " scheme=https parent=\"" + insertionParent + "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true" + insertionProxySuffix + "\n"
 					mapperTextArr = append(mapperTextArr, mapperLine)
 				}
 				backupParent := strings.Join(rule.Backups, ",")
@@ -346,8 +352,8 @@ func MakeParentDotConfig(
 				if !rule.BackupIsProxy {
 					backupProxySuffix = " parent_is_proxy=false"
 				}
-				mapperLine := "dest_host=" + rule.OriginFQDN + prefixLineNoPlaylist + " scheme=http parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + "\n"
-				mapperLine += "dest_host=" + rule.OriginFQDN + prefixLineNoPlaylist + " scheme=https parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + "\n"
+				mapperLine := "dest_host=" + rule.OriginFQDN + prefixLineNoPlaylist + " scheme=http parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + ignoreSelfDetect + "\n"
+				mapperLine += "dest_host=" + rule.OriginFQDN + prefixLineNoPlaylist + " scheme=https parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + ignoreSelfDetect + "\n"
 				mapperTextArr = append(mapperTextArr, mapperLine)
 			}
 		}

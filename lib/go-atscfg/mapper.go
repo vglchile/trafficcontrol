@@ -86,9 +86,9 @@ func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperR
 				insertionCSV = fields[8]
 
 				// RequestScheme: 1=HTTP, 2=HTTPS
-				if requestScheme == "1" {
+				if requestScheme == "http" {
 					requestScheme = "http"
-				} else if requestScheme == "2" {
+				} else if requestScheme == "https" {
 					requestScheme = "https"
 				}
 
@@ -218,9 +218,9 @@ func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperR
 				insertionRing = append(insertionRing, host+":"+port)
 			}
 
-			if !legacyShortFormat && !inserterIsProxy {
-				insertionRing = append(insertionRing, originFQDN+":"+originPortForRings)
-			}
+			// if !legacyShortFormat && !inserterIsProxy {
+			// 	insertionRing = append(insertionRing, originFQDN+":"+originPortForRings)
+			// }
 
 			mapperRules[xmlid] = append(mapperRules[xmlid], mapperRule{
 				DSXMLID:              xmlid,
