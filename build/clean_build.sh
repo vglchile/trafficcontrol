@@ -35,6 +35,63 @@ cleanup() {
 	fi
 }
 
+repoImportPathFromRemoteURL() {
+	remote_url="$1"
+	case "$remote_url" in
+		*github.com/*)
+			repo_path="${remote_url#*github.com/}"
+			;;
+		*github.com:*)
+			repo_path="${remote_url#*github.com:}"
+			;;
+		*)
+			return 1
+			;;
+	esac
+	repo_path="${repo_path%.git}"
+	repo_path="${repo_path#/}"
+	[ -n "$repo_path" ] || return 1
+	printf 'github.com/%s\n' "$repo_path"
+}
+
+getRepoImportPath() {
+	repo_root="$1"
+	if [ -n "${TC_REPO_IMPORT_PATH:-}" ]; then
+		printf '%s\n' "$TC_REPO_IMPORT_PATH"
+		return 0
+	fi
+	if [ -n "${GITHUB_REPOSITORY:-}" ]; then
+		printf 'github.com/%s\n' "$GITHUB_REPOSITORY"
+		return 0
+	fi
+
+	git_config=''
+	if [ -r "$repo_root/.git/config" ]; then
+		git_config="$repo_root/.git/config"
+	elif [ -r "$repo_root/.git" ]; then
+		git_dir="$(sed -n 's/^gitdir: //p' "$repo_root/.git" | head -n 1)"
+		case "$git_dir" in
+			/*)
+				git_config="$git_dir/config"
+				;;
+			'')
+				;;
+			*)
+				git_config="$repo_root/$git_dir/config"
+				;;
+		esac
+	fi
+
+	if [ -n "$git_config" ] && [ -r "$git_config" ]; then
+		remote_url="$(git config -f "$git_config" --get remote.origin.url 2>/dev/null || true)"
+		if repoImportPathFromRemoteURL "$remote_url"; then
+			return 0
+		fi
+	fi
+
+	printf '%s\n' 'github.com/apache/trafficcontrol'
+}
+
 set -o xtrace;
 
 if ! script_path="$(readlink "$0")"; then
@@ -47,7 +104,8 @@ fi;
 
 # set owner of dist dir -- cleans up existing dist permissions...
 export GOPATH=/tmp/go GOOS="${GOOS:-linux}";
-tc_dir=${GOPATH}/src/github.com/apache/trafficcontrol;
+export TC_REPO_IMPORT_PATH="$(getRepoImportPath "$tc_volume")"
+tc_dir=${GOPATH}/src/${TC_REPO_IMPORT_PATH};
 if which cygpath 2>/dev/null; then
 	GOPATH="$(cygpath -w "$GOPATH")" # cygwin compatibility
 fi
@@ -55,14 +113,15 @@ fi
  cd "$GOPATH"
  mkdir -p src pkg bin "$(dirname "$tc_dir")"
 )
-rsync -a --exclude=/dist --exclude=/.m2 "${tc_volume}/" "$tc_dir";
+rsync -a --no-owner --no-group --exclude=/dist --exclude=/.m2 "${tc_volume}/" "$tc_dir";
 if [ -d "${tc_volume}/.git" ] && [ ! -d ${tc_dir}/.git ]; then
-	rsync -a "${tc_volume}/.git" $tc_dir; # Docker for Windows compatibility
+	rsync -a --no-owner --no-group "${tc_volume}/.git" $tc_dir; # Docker for Windows compatibility
 fi
 
 cd "$tc_dir"
 if [ -d "${tc_volume}/.git" ]; then
 	# In case the mirrored repo already exists, remove gitignored files
+	git config --global --add safe.directory "$tc_dir" >/dev/null 2>&1 || true
 	git clean -fdX
 fi
 

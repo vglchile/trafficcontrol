@@ -39,6 +39,8 @@ jobs:
         sudo chmod +x /usr/local/bin/docker-compose
     
     - name: Build T3C RPM
+      env:
+        TC_REPO_IMPORT_PATH: github.com/${{ github.repository }}
       run: |
         ./pkg -8 -v -L -S -b cache-config_build
         echo "PACKAGED_OUTPUTDATE=$(date +"%Y.%m.%d.%H%M")_RHEL8" >> $GITHUB_ENV

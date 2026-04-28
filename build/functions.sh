@@ -47,6 +47,61 @@ removeFirstArg() {
 }
 
 # ---------------------------------------
+repoImportPathFromRemoteURL() {
+	local remote_url="$1" repo_path=''
+	case "$remote_url" in
+		*github.com/*)
+			repo_path="${remote_url#*github.com/}"
+			;;
+		*github.com:*)
+			repo_path="${remote_url#*github.com:}"
+			;;
+		*)
+			return 1
+			;;
+	esac
+	repo_path="${repo_path%.git}"
+	repo_path="${repo_path#/}"
+	[ -n "$repo_path" ] || return 1
+	printf 'github.com/%s\n' "$repo_path"
+}
+
+# ---------------------------------------
+getRepoImportPath() {
+	local repo_root="$1" git_config='' git_dir='' remote_url=''
+	if [ -n "${TC_REPO_IMPORT_PATH:-}" ]; then
+		printf '%s\n' "$TC_REPO_IMPORT_PATH"
+		return 0
+	fi
+	if [ -n "${GITHUB_REPOSITORY:-}" ]; then
+		printf 'github.com/%s\n' "$GITHUB_REPOSITORY"
+		return 0
+	fi
+	if [ -r "$repo_root/.git/config" ]; then
+		git_config="$repo_root/.git/config"
+	elif [ -r "$repo_root/.git" ]; then
+		git_dir="$(sed -n 's/^gitdir: //p' "$repo_root/.git" | head -n 1)"
+		case "$git_dir" in
+			/*)
+				git_config="$git_dir/config"
+				;;
+			'')
+				;;
+			*)
+				git_config="$repo_root/$git_dir/config"
+				;;
+		esac
+	fi
+	if [ -n "$git_config" ] && [ -r "$git_config" ]; then
+		remote_url="$(git config -f "$git_config" --get remote.origin.url 2>/dev/null || true)"
+		if repoImportPathFromRemoteURL "$remote_url"; then
+			return 0
+		fi
+	fi
+	printf '%s\n' 'github.com/apache/trafficcontrol'
+}
+
+# ---------------------------------------
 # versionOk checks version number against required version.
 #   ``versionOk 1.2.3 2.0.4.7'' returns false value indicating
 #       version you have is not at least version you need
@@ -185,6 +240,7 @@ checkEnvironment() {
 	TC_VERSION='' BUILD_NUMBER='' RPMBUILD='' DIST=''
 	TC_VERSION="$(getVersion "$TC_DIR")"
 	BUILD_NUMBER="$(getBuildNumber)"
+	TC_REPO_IMPORT_PATH="$(getRepoImportPath "$TC_DIR")"
 	GO_VERSION="$(getGoVersion "$TC_DIR")"
 	RHEL_VERSION="$(getRhelVersion)"
 	WORKSPACE="${WORKSPACE:-$TC_DIR}"
@@ -192,7 +248,7 @@ checkEnvironment() {
 	GOOS="${GOOS:-linux}"
 	RPM_TARGET_OS="${RPM_TARGET_OS:-$GOOS}"
 	DIST="$WORKSPACE/dist"
-	export TC_VERSION BUILD_NUMBER GO_VERSION RHEL_VERSION WORKSPACE RPMBUILD GOOS RPM_TARGET_OS DIST
+	export TC_VERSION BUILD_NUMBER TC_REPO_IMPORT_PATH GO_VERSION RHEL_VERSION WORKSPACE RPMBUILD GOOS RPM_TARGET_OS DIST
 
 	mkdir -p "$DIST" || { echo "Could not create ${DIST}: ${?}"; return 1; }
 
@@ -242,6 +298,7 @@ buildRpm() {
 		rpmbuild --define "_topdir $(pwd)" \
 			--define "traffic_control_version $TC_VERSION" \
 			--define "go_version $GO_VERSION" \
+			--define "tc_repo_import_path $TC_REPO_IMPORT_PATH" \
 			--define "commit $(getCommit)" \
 			--define "build_number $BUILD_NUMBER.$RHEL_VERSION" \
 			--define "_target_os $RPM_TARGET_OS" \

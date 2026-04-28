@@ -200,6 +200,9 @@ export RHEL_VERSION;
 if [[ -n "$RHEL_VERSION" ]]; then
 	RUN_OPTIONS+=(-e RHEL_VERSION);
 fi
+if [[ -n "${TC_REPO_IMPORT_PATH:-}" ]]; then
+	RUN_OPTIONS+=(-e TC_REPO_IMPORT_PATH);
+fi
 export SIMPLE;
 export NO_SOURCE;
 export NO_LOG_FILES;
