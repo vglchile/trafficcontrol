@@ -138,30 +138,67 @@ func makeMapperRemapTestOutput(t *testing.T, mapperMode string, mapperMap string
 
 func TestMakeRemapDotConfigMapperRuleTypes(t *testing.T) {
 	testCases := []struct {
-		name                string
-		ruleType            string
-		expectedDirective   string
-		unexpectedDirective string
+		name      string
+		mapperMap string
+		check     func(*testing.T, string)
 	}{
-		{name: "map", ruleType: "map", expectedDirective: "map", unexpectedDirective: "redirect"},
-		{name: "redirect", ruleType: "redirect", expectedDirective: "redirect", unexpectedDirective: "map"},
-		{name: "invalid defaults to map", ruleType: "bogus", expectedDirective: "map", unexpectedDirective: "redirect"},
+		{
+			name:      "map",
+			mapperMap: "0 mydsname map 1 80 http://origin.example.test/live/channel.m3u8 http://backup.example.net true http://inserter.example.net false false",
+			check: func(t *testing.T, txt string) {
+				t.Helper()
+				if !strings.Contains(txt, "map\thttp://myregexpattern/live/channel.m3u8") {
+					t.Fatalf("expected mapper playlist line to use map, actual: %s", txt)
+				}
+				if !strings.Contains(txt, "map\thttp://myregexpattern/live/") {
+					t.Fatalf("expected mapper no-playlist line to use map, actual: %s", txt)
+				}
+				if strings.Contains(txt, "redirect\thttp://myregexpattern/live/channel.m3u8") {
+					t.Fatalf("did not expect redirect mapper playlist line, actual: %s", txt)
+				}
+			},
+		},
+		{
+			name:      "redirect",
+			mapperMap: "0 mydsname redirect 1 80 /live/channel.m3u8 http://origin.example.test/live/channel.m3u8",
+			check: func(t *testing.T, txt string) {
+				t.Helper()
+				if !strings.Contains(txt, "redirect\thttp://myregexpattern/live/channel.m3u8") {
+					t.Fatalf("expected redirect mapper line to include request path, actual: %s", txt)
+				}
+				if !strings.Contains(txt, "http://origin.example.test/live/channel.m3u8") {
+					t.Fatalf("expected redirect mapper line to target full origin URL, actual: %s", txt)
+				}
+				if strings.Count(txt, "redirect\thttp://myregexpattern/live/channel.m3u8") != 1 {
+					t.Fatalf("expected exactly one redirect mapper line, actual: %s", txt)
+				}
+				if strings.Contains(txt, "map\thttp://myregexpattern/live/channel.m3u8") {
+					t.Fatalf("did not expect map mapper playlist line for redirect rule, actual: %s", txt)
+				}
+			},
+		},
+		{
+			name:      "invalid defaults to map",
+			mapperMap: "0 mydsname bogus 1 80 http://origin.example.test/live/channel.m3u8 http://backup.example.net true http://inserter.example.net false false",
+			check: func(t *testing.T, txt string) {
+				t.Helper()
+				if !strings.Contains(txt, "map\thttp://myregexpattern/live/channel.m3u8") {
+					t.Fatalf("expected invalid mapper type to default to map playlist line, actual: %s", txt)
+				}
+				if !strings.Contains(txt, "map\thttp://myregexpattern/live/") {
+					t.Fatalf("expected invalid mapper type to default to map no-playlist line, actual: %s", txt)
+				}
+				if strings.Contains(txt, "redirect\thttp://myregexpattern/live/channel.m3u8") {
+					t.Fatalf("did not expect redirect mapper playlist line for invalid type, actual: %s", txt)
+				}
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			mapperMap := "0 mydsname " + testCase.ruleType + " 1 80 http://origin.example.test/live/channel.m3u8 http://backup.example.net true http://inserter.example.net false false"
-			txt := makeMapperRemapTestOutput(t, "prepend", mapperMap)
-
-			if !strings.Contains(txt, testCase.expectedDirective+"\thttp://myregexpattern/live/channel.m3u8") {
-				t.Fatalf("expected mapper playlist line to use %s, actual: %s", testCase.expectedDirective, txt)
-			}
-			if !strings.Contains(txt, testCase.expectedDirective+"\thttp://myregexpattern/live/") {
-				t.Fatalf("expected mapper no-playlist line to use %s, actual: %s", testCase.expectedDirective, txt)
-			}
-			if strings.Contains(txt, testCase.unexpectedDirective+"\thttp://myregexpattern/live/channel.m3u8") {
-				t.Fatalf("did not expect mapper playlist line to use %s, actual: %s", testCase.unexpectedDirective, txt)
-			}
+			txt := makeMapperRemapTestOutput(t, "prepend", testCase.mapperMap)
+			testCase.check(t, txt)
 		})
 	}
 }

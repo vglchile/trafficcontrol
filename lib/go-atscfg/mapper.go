@@ -12,6 +12,7 @@ type mapperRule struct {
 	RuleType             string
 	RequestScheme        string
 	RequestPort          string
+	RequestPath          string //Only Valid for redirect type
 	OriginScheme         string
 	OriginURL            string
 	OriginURLNoPlaylist  string
@@ -44,6 +45,25 @@ func normalizeMapperRuleType(ruleType string) string {
 	}
 }
 
+func normalizeRequestScheme(requestScheme string) string {
+	switch strings.ToLower(strings.TrimSpace(requestScheme)) {
+	case "1", "http":
+		return "http"
+	case "2", "https":
+		return "https"
+	default:
+		return requestScheme
+	}
+}
+
+func buildOriginURLs(originScheme string, originFQDN string, originPort string, originPath string, originPathNoPlaylist string) (string, string) {
+	originHost := originFQDN
+	if originPort != "" {
+		originHost += ":" + originPort
+	}
+	return originScheme + "://" + originHost + originPath, originScheme + "://" + originHost + originPathNoPlaylist + "/"
+}
+
 func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperRule, []string) {
 	warnings := []string{}
 	mapperRules := map[string][]mapperRule{}
@@ -57,17 +77,20 @@ func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperR
 			}
 			fields := strings.Fields(line)
 			legacyShortFormat := legacyShortMode && len(fields) == 5
-			if !legacyShortFormat && len(fields) < 11 {
-				warnings = append(warnings, "mapper rule line has fewer than 11 fields, skipping: "+line)
+			if !legacyShortFormat && len(fields) < 3 {
+				warnings = append(warnings, "mapper rule line has fewer than 3 fields, skipping: "+line)
 				continue
 			}
-			// Fields: 0=unused, 1=XMLID, 2=Type, 3=RequestScheme, 4=RequestPORT, 5=OriginURL, 6=Backups(csv), 7=Insertion(bool), 8=InsertionServers(csv), 9=BackupIsProxy(bool), 10=InserterIsProxy(bool)
+			// Fields (map): 0=unused, 1=XMLID, 2=Type, 3=RequestScheme, 4=RequestPORT, 5=OriginURL, 6=Backups(csv), 7=Insertion(bool), 8=InsertionServers(csv), 9=BackupIsProxy(bool), 10=InserterIsProxy(bool)
+			// Fields (redirect): 0=unused, 1=XMLID, 2=Type, 3=RequestScheme, 4=RequestPORT, 5=RequestPath, 6=OriginURL
 			// Legacy short format when mapper_mode has two fields and the second is 1: 0=unused, 1=XMLID, 2=OriginURL, 3=Backups(csv), 4=unused
 			xmlid := fields[1]
 			ruleType := "map"
 			requestScheme := ""
 			requestPort := ""
+			requestPath := ""
 			originURL := ""
+			originURLNoPlaylist := ""
 			backupsCSV := ""
 			insertionCSV := ""
 			insertion := false
@@ -79,17 +102,46 @@ func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperR
 				backupsCSV = fields[3]
 			} else {
 				ruleType = normalizeMapperRuleType(fields[2])
-				requestScheme = fields[3]
-				requestPort = fields[4]
-				originURL = fields[5]
-				backupsCSV = fields[6]
-				insertionCSV = fields[8]
+				if ruleType == "redirect" {
+					if len(fields) < 7 {
+						warnings = append(warnings, "redirect mapper rule line has fewer than 7 fields, skipping: "+line)
+						continue
+					}
+					requestScheme = normalizeRequestScheme(fields[3])
+					requestPort = fields[4]
+					requestPath = fields[5]
+					originURL = fields[6]
+				} else {
+					if len(fields) < 11 {
+						warnings = append(warnings, "mapper rule line has fewer than 11 fields, skipping: "+line)
+						continue
+					}
+					requestScheme = normalizeRequestScheme(fields[3])
+					requestPort = fields[4]
+					originURL = fields[5]
+					backupsCSV = fields[6]
+					insertionCSV = fields[8]
 
-				// RequestScheme: 1=HTTP, 2=HTTPS
-				if requestScheme == "http" {
-					requestScheme = "http"
-				} else if requestScheme == "https" {
-					requestScheme = "https"
+					parsedInsertion, err := strconv.ParseBool(fields[7])
+					if err != nil {
+						warnings = append(warnings, "mapper rule has invalid Insertion value '"+fields[7]+"', skipping line...")
+						continue
+					}
+					insertion = parsedInsertion
+
+					parsedBackupIsProxy, err := strconv.ParseBool(fields[9])
+					if err != nil {
+						warnings = append(warnings, "mapper rule has invalid BackupIsProxy value '"+fields[9]+"', skipping line...")
+						continue
+					}
+					backupIsProxy = parsedBackupIsProxy
+
+					parsedInserterIsProxy, err := strconv.ParseBool(fields[10])
+					if err != nil {
+						warnings = append(warnings, "mapper rule has invalid InserterIsProxy value '"+fields[10]+"', skipping line...")
+						continue
+					}
+					inserterIsProxy = parsedInserterIsProxy
 				}
 
 				// Standard ports are omitted
@@ -100,27 +152,6 @@ func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperR
 					warnings = append(warnings, "mapper rule has RequestPort set to 443 for scheme '"+requestScheme+"', defaulting to empty")
 					requestPort = ""
 				}
-
-				parsedInsertion, err := strconv.ParseBool(fields[7])
-				if err != nil {
-					warnings = append(warnings, "mapper rule has invalid Insertion value '"+fields[7]+"', skipping line...")
-					continue
-				}
-				insertion = parsedInsertion
-
-				parsedBackupIsProxy, err := strconv.ParseBool(fields[9])
-				if err != nil {
-					warnings = append(warnings, "mapper rule has invalid BackupIsProxy value '"+fields[9]+"', skipping line...")
-					continue
-				}
-				backupIsProxy = parsedBackupIsProxy
-
-				parsedInserterIsProxy, err := strconv.ParseBool(fields[10])
-				if err != nil {
-					warnings = append(warnings, "mapper rule has invalid InserterIsProxy value '"+fields[10]+"', skipping line...")
-					continue
-				}
-				inserterIsProxy = parsedInserterIsProxy
 			}
 
 			// Parse the Origin URL to extract FQDN and Path
@@ -156,15 +187,7 @@ func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperR
 			// OriginPathNoPlaylist: remove the first path segment matching *.m3u8 and everything after it
 			reM3u8 := regexp.MustCompile(`/[^/]*\.m3u8.*$`)
 			originPathNoPlaylist := reM3u8.ReplaceAllString(originPath, "")
-			originURLNoPlaylist := ""
-
-			if originPort != "" {
-				originURL = originScheme + "://" + originFQDN + ":" + originPort + originPath
-				originURLNoPlaylist = originScheme + "://" + originFQDN + ":" + originPort + originPathNoPlaylist + "/"
-			} else {
-				originURL = originScheme + "://" + originFQDN + originPath
-				originURLNoPlaylist = originScheme + "://" + originFQDN + originPathNoPlaylist + "/"
-			}
+			originURL, originURLNoPlaylist = buildOriginURLs(originScheme, originFQDN, originPort, originPath, originPathNoPlaylist)
 
 			// Backups: comma-separated list, extract hostnames only
 			backupParts := strings.Split(backupsCSV, ",")
@@ -227,6 +250,7 @@ func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperR
 				RuleType:             ruleType,
 				RequestScheme:        requestScheme,
 				RequestPort:          requestPort,
+				RequestPath:          requestPath,
 				OriginScheme:         originScheme,
 				OriginURL:            originURL,
 				OriginURLNoPlaylist:  originURLNoPlaylist,

@@ -343,8 +343,8 @@ func MakeParentDotConfig(
 					if !rule.InserterIsProxy {
 						insertionProxySuffix = " parent_is_proxy=false"
 					}
-					mapperLine := "url_regex=" + "m3u8" + " path=" + rule.OriginPathNoPlaylist + " scheme=http parent=\"" + insertionParent + "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true" + insertionProxySuffix + "\n"
-					mapperLine += "url_regex=" + "m3u8" + " path=" + rule.OriginPathNoPlaylist + " scheme=https parent=\"" + insertionParent + "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true" + insertionProxySuffix + "\n"
+					mapperLine := "url_regex=" + ".m3u8" + prefixLineNoPlaylist + " scheme=" + rule.OriginScheme + " parent=\"" + insertionParent + "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true" + insertionProxySuffix + "\n"
+					// mapperLine += "url_regex=" + "m3u8" + " path=" + rule.OriginPathNoPlaylist + " scheme=https parent=\"" + insertionParent + "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true" + insertionProxySuffix + "\n"
 					mapperTextArr = append(mapperTextArr, mapperLine)
 				}
 				backupParent := strings.Join(rule.Backups, ",")
@@ -352,8 +352,8 @@ func MakeParentDotConfig(
 				if !rule.BackupIsProxy {
 					backupProxySuffix = " parent_is_proxy=false"
 				}
-				mapperLine := "dest_host=" + rule.OriginFQDN + prefixLineNoPlaylist + " scheme=http parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + ignoreSelfDetect + "\n"
-				mapperLine += "dest_host=" + rule.OriginFQDN + prefixLineNoPlaylist + " scheme=https parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + ignoreSelfDetect + "\n"
+				mapperLine := "dest_host=" + rule.OriginFQDN + prefixLineNoPlaylist + " scheme=" + rule.OriginScheme + " parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + ignoreSelfDetect + "\n"
+				// mapperLine += "dest_host=" + rule.OriginFQDN + prefixLineNoPlaylist + " scheme=https parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + ignoreSelfDetect + "\n"
 				mapperTextArr = append(mapperTextArr, mapperLine)
 			}
 		}

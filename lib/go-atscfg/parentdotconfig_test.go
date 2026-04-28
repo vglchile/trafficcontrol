@@ -300,7 +300,7 @@ func TestMakeParentDotConfigMapperRedirectSkipped(t *testing.T) {
 		tc.Parameter{
 			Name:       "mapper_map",
 			ConfigFile: "mapper_rules.config",
-			Value:      "0 ds-mapper redirect 1 80 http://origin.example.net/live/channel.m3u8 http://backup.example.net true http://inserter.example.net false false",
+			Value:      "0 ds-mapper redirect 1 80 /live/channel.m3u8 http://origin.example.net/live/channel.m3u8",
 			Profiles:   []byte(`["serverprofile"]`),
 		},
 	}

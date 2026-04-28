@@ -414,10 +414,6 @@ func getServerConfigRemapDotConfigForEdge(
 				if ds.ProfileID != nil {
 					profileremapConfigParams = profilesRemapConfigParams[*ds.ProfileID]
 				}
-				buildMapperLine := buildEdgeRemapLine
-				if rule.RuleType == "redirect" {
-					buildMapperLine = buildEdgeRedirectLine
-				}
 				requestSchemes := []string{rule.RequestScheme}
 				if rule.LegacyShortFormat {
 					requestSchemes = []string{"http", "https"}
@@ -429,6 +425,7 @@ func getServerConfigRemapDotConfigForEdge(
 					subRule := ""
 					subRule2 := ""
 					mapperRemapWarns := []string{}
+					mapperRedirectWarns := []string{}
 
 					if rule.LegacyShortFormat || (rule.RequestPort == "" && (requestScheme == "http" || requestScheme == "https")) {
 						mapFromNoPlaylist = requestScheme + "://" + requestFQDN
@@ -436,24 +433,33 @@ func getServerConfigRemapDotConfigForEdge(
 						mapFromNoPlaylist = requestScheme + "://" + requestFQDN + ":" + rule.RequestPort
 					}
 
-					if rule.Insertion && rule.OriginPath != "" {
+					if rule.RuleType == "map" && rule.Insertion && rule.OriginPath != "" {
 						mapFromWithPlaylist, err = appendPathToURL(mapFromNoPlaylist, rule.OriginPath)
 						if err != nil {
 							return "", warnings, errors.New("adding origin URL path to remap source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
-							continue
 						}
-						subRule, mapperRemapWarns, err = buildMapperLine(atsMajorVersion, server, serverPackageParamData, subRule, ds, mapFromWithPlaylist, rule.OriginURL, profileremapConfigParams, cacheGroups, nameTopologies)
+						subRule, mapperRemapWarns, err = buildEdgeRemapLine(atsMajorVersion, server, serverPackageParamData, subRule, ds, mapFromWithPlaylist, rule.OriginURL, profileremapConfigParams, cacheGroups, nameTopologies)
+						warnings = append(warnings, mapperRemapWarns...)
 					}
 
-					mapFromNoPlaylist, err = appendPathToURL(mapFromNoPlaylist, rule.OriginPathNoPlaylist)
-					mapFromNoPlaylist += "/"
-					if err != nil {
-						return "", warnings, errors.New("adding origin URL path to remap source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
-						continue
+					if rule.RuleType == "map" {
+						mapFromNoPlaylist, err = appendPathToURL(mapFromNoPlaylist, rule.OriginPathNoPlaylist)
+						mapFromNoPlaylist += "/"
+						if err != nil {
+							return "", warnings, errors.New("adding origin URL path to remap source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
+						}
+						subRule2, mapperRemapWarns, err = buildEdgeRemapLine(atsMajorVersion, server, serverPackageParamData, subRule2, ds, mapFromNoPlaylist, rule.OriginURLNoPlaylist, profileremapConfigParams, cacheGroups, nameTopologies)
+						warnings = append(warnings, mapperRemapWarns...)
 					}
-					subRule2, mapperRemapWarns, err = buildMapperLine(atsMajorVersion, server, serverPackageParamData, subRule2, ds, mapFromNoPlaylist, rule.OriginURLNoPlaylist, profileremapConfigParams, cacheGroups, nameTopologies)
 
-					warnings = append(warnings, mapperRemapWarns...)
+					if rule.RuleType == "redirect" && rule.RequestPath != "" {
+						mapFromNoPlaylist, err = appendPathToURL(mapFromNoPlaylist, rule.RequestPath)
+						if err != nil {
+							return "", warnings, errors.New("adding origin URL path to redirect source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
+						}
+						subRule2, mapperRedirectWarns, err = buildEdgeRedirectLine(atsMajorVersion, server, serverPackageParamData, subRule2, ds, mapFromNoPlaylist, rule.OriginURL, profileremapConfigParams, cacheGroups, nameTopologies)
+						warnings = append(warnings, mapperRedirectWarns...)
+					}
 
 					if err != nil {
 						return "", warnings, err
