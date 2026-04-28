@@ -32,14 +32,19 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v5
+
+    - name: Setup Docker Compose V2
+      run: |
+        printf '#!/bin/sh\nexec docker compose "$@"\n' | sudo tee /usr/local/bin/docker-compose > /dev/null
+        sudo chmod +x /usr/local/bin/docker-compose
     
-    - name: Build Installer Packagers
+    - name: Build T3C RPM
       run: |
         ./pkg -8 -v -L -S -b cache-config_build
         echo "PACKAGED_OUTPUTDATE=$(date +"%Y.%m.%d.%H%M")_RHEL8" >> $GITHUB_ENV
         
     - name: Publish Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
