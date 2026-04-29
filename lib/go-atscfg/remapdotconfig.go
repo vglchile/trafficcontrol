@@ -335,6 +335,7 @@ func getServerConfigRemapDotConfigForEdge(
 	mapperRules map[string][]mapperRule, // map[XMLID][]mapperRule
 ) (string, []string, error) {
 	warnings := []string{}
+	redirectOverlapWarnings := []string{}
 	textLines := []string{}
 	mapperLines := []string{}
 	mapperRequestLines := []string{}
@@ -452,7 +453,7 @@ func getServerConfigRemapDotConfigForEdge(
 						warnings = append(warnings, mapperRemapWarns...)
 					}
 
-					if rule.RuleType == "redirect" && rule.RequestPath != "" {
+					if rule.RuleType == "redirect" {
 						mapFromNoPlaylist, err = appendPathToURL(mapFromNoPlaylist, rule.RequestPath)
 						if err != nil {
 							return "", warnings, errors.New("adding origin URL path to redirect source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
@@ -483,6 +484,8 @@ func getServerConfigRemapDotConfigForEdge(
 
 	for _, requestLine := range mapperRequestLines {
 		textLines = removeDuplicates(textLines, requestLine)
+		textLines, redirectOverlapWarnings = removeMapRedirectDuplicatesOverlap(textLines, requestLine)
+		warnings = append(warnings, redirectOverlapWarnings...)
 	}
 
 	text := header
@@ -649,7 +652,8 @@ func buildEdgeRedirectLine(
 	// if this remap is going to a parent, use http not https.
 	// cache-to-cache communication inside the CDN is always http (though that's likely to change in the future)
 	if !isLastCache {
-		mapTo = strings.Replace(mapTo, `https://`, `http://`, -1)
+		// mapTo = strings.Replace(mapTo, `https://`, `http://`, -1)
+		log.Warnln("Last Cache Rule - not replacing https with http for redirect rule. mapTo: " + mapTo)
 	}
 
 	if _, hasDSCPRemap := pData["dscp_remap"]; hasDSCPRemap {
@@ -1147,6 +1151,27 @@ func removeDuplicates(mappings []string, target string) []string {
 		}
 	}
 	return mappings
+}
+
+func removeMapRedirectDuplicatesOverlap(mappings []string, requestLine string) ([]string, []string) {
+	warnings := []string{}
+
+	parsedDestination, err := url.Parse(requestLine)
+	if err != nil || parsedDestination.Host == "" {
+		warnings = append(warnings, "mapper rule has invalid origin URL '"+requestLine+"', skipping line...")
+		return mappings, warnings
+	}
+
+	for i, mapping := range mappings {
+		mappingLineFields := strings.Fields(mapping)
+
+		targetHost := "://" + parsedDestination.Hostname() + "/"
+
+		if mappingLineFields[0] == "map" && (mappingLineFields[1] == string("http"+targetHost) || mappingLineFields[1] == string("https"+targetHost)) {
+			mappings = append(mappings[:i], mappings[i+1:]...)
+		}
+	}
+	return mappings, warnings
 }
 
 //UTILS END
