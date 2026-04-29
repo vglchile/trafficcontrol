@@ -434,18 +434,17 @@ func getServerConfigRemapDotConfigForEdge(
 						mapFromNoPlaylist = requestScheme + "://" + requestFQDN + ":" + rule.RequestPort
 					}
 
-					if rule.RuleType == "map" && rule.Insertion && rule.OriginPath != "" {
-						mapFromWithPlaylist, err = appendPathToURL(mapFromNoPlaylist, rule.OriginPath)
-						if err != nil {
-							return "", warnings, errors.New("adding origin URL path to remap source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
-						}
-						subRule, mapperRemapWarns, err = buildEdgeRemapLine(atsMajorVersion, server, serverPackageParamData, subRule, ds, mapFromWithPlaylist, rule.OriginURL, profileremapConfigParams, cacheGroups, nameTopologies)
-						warnings = append(warnings, mapperRemapWarns...)
-					}
+					// if rule.RuleType == "map" && rule.Insertion {
+					// 	mapFromWithPlaylist, err = appendPathToURL(mapFromNoPlaylist, rule.OriginPath)
+					// 	if err != nil {
+					// 		return "", warnings, errors.New("adding origin URL path to remap source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
+					// 	}
+					// 	subRule, mapperRemapWarns, err = buildEdgeRemapLine(atsMajorVersion, server, serverPackageParamData, subRule, ds, mapFromWithPlaylist, rule.OriginURL, profileremapConfigParams, cacheGroups, nameTopologies)
+					// 	warnings = append(warnings, mapperRemapWarns...)
+					// }
 
 					if rule.RuleType == "map" {
 						mapFromNoPlaylist, err = appendPathToURL(mapFromNoPlaylist, rule.OriginPathNoPlaylist)
-						mapFromNoPlaylist += "/"
 						if err != nil {
 							return "", warnings, errors.New("adding origin URL path to remap source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
 						}

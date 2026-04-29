@@ -61,7 +61,7 @@ func buildOriginURLs(originScheme string, originFQDN string, originPort string, 
 	if originPort != "" {
 		originHost += ":" + originPort
 	}
-	return originScheme + "://" + originHost + originPath, originScheme + "://" + originHost + originPathNoPlaylist + "/"
+	return originScheme + "://" + originHost + originPath, originScheme + "://" + originHost + originPathNoPlaylist
 }
 
 func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperRule, []string) {

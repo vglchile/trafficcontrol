@@ -337,7 +337,8 @@ func MakeParentDotConfig(
 					// prefixLineWithPlaylist = " prefix=" + rule.OriginPath
 					prefixLineNoPlaylist = " prefix=" + rule.OriginPathNoPlaylist
 				}
-				if rule.Insertion && (rule.OriginPath != rule.OriginPathNoPlaylist) {
+				// if rule.Insertion && (rule.OriginPath != rule.OriginPathNoPlaylist) {
+				if rule.Insertion {
 					insertionParent := strings.Join(rule.InsertionRing, ",")
 					insertionProxySuffix := ""
 					if !rule.InserterIsProxy {
