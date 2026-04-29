@@ -525,8 +525,12 @@ func buildEdgeRemapLine(
 	// if this remap is going to a parent, use http not https.
 	// cache-to-cache communication inside the CDN is always http (though that's likely to change in the future)
 	if !isLastCache {
-		mapTo = strings.Replace(mapTo, `https://`, `http://`, -1)
+		// mapTo = strings.Replace(mapTo, `https://`, `http://`, -1)
+		log.Warnln("Last Cache Rule - not replacing https with http for redirect rule. mapTo: " + mapTo)
 	}
+
+	mapTo, sanitizationWarnings := sanitizeToUrlTrailingSlash(mapFrom, mapTo)
+	warnings = append(warnings, sanitizationWarnings...)
 
 	if _, hasDSCPRemap := pData["dscp_remap"]; hasDSCPRemap {
 		text += "map	" + mapFrom + "     " + mapTo + ` @plugin=dscp_remap.so @pparam=` + strconv.Itoa(*ds.DSCP)
@@ -655,6 +659,9 @@ func buildEdgeRedirectLine(
 		// mapTo = strings.Replace(mapTo, `https://`, `http://`, -1)
 		log.Warnln("Last Cache Rule - not replacing https with http for redirect rule. mapTo: " + mapTo)
 	}
+
+	mapTo, sanitizationWarnings := sanitizeToUrlTrailingSlash(mapFrom, mapTo)
+	warnings = append(warnings, sanitizationWarnings...)
 
 	if _, hasDSCPRemap := pData["dscp_remap"]; hasDSCPRemap {
 		text += "redirect	" + mapFrom + "     " + mapTo + ` @plugin=dscp_remap.so @pparam=` + strconv.Itoa(*ds.DSCP)
@@ -1172,6 +1179,21 @@ func removeMapRedirectDuplicatesOverlap(mappings []string, requestLine string) (
 		}
 	}
 	return mappings, warnings
+}
+
+func sanitizeToUrlTrailingSlash(fromUrl string, toUrl string) (string, []string) {
+	warnings := []string{}
+
+	if strings.HasSuffix(fromUrl, "/") && !strings.HasSuffix(toUrl, "/") {
+		warnings = append(warnings, "remap from '"+fromUrl+"' has trailing slash but to '"+toUrl+"' does not - adding trailing slash to toUrl")
+		toUrl += "/"
+	} else if !strings.HasSuffix(fromUrl, "/") && strings.HasSuffix(toUrl, "/") {
+		warnings = append(warnings, "remap from '"+fromUrl+"' does not have trailing slash but to '"+toUrl+"' does - removing trailing slash from toUrl")
+		toUrl = strings.TrimSuffix(toUrl, "/")
+	}
+
+	url := toUrl
+	return url, warnings
 }
 
 //UTILS END
