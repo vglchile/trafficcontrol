@@ -1102,7 +1102,8 @@ func noTopologyServerIsLastCacheForDS(server *Server, ds *DeliveryService) bool 
 
 // UTILS START
 func appendPathToURL(rawURL string, pathToAppend string) (string, error) {
-	if pathToAppend == "" || pathToAppend == "/" {
+	// if pathToAppend == "" || pathToAppend == "/" {
+	if pathToAppend == "" {
 		return rawURL, nil
 	}
 
@@ -1185,10 +1186,10 @@ func sanitizeToUrlTrailingSlash(fromUrl string, toUrl string) (string, []string)
 	warnings := []string{}
 
 	if strings.HasSuffix(fromUrl, "/") && !strings.HasSuffix(toUrl, "/") {
-		warnings = append(warnings, "remap from '"+fromUrl+"' has trailing slash but to '"+toUrl+"' does not - adding trailing slash to toUrl")
+		warnings = append(warnings, "remap from '"+fromUrl+"' has trailing slash but to '"+toUrl+"' does not - adding trailing slash to toUrl. The rule is mapping a route to a file. Review the rule.")
 		toUrl += "/"
 	} else if !strings.HasSuffix(fromUrl, "/") && strings.HasSuffix(toUrl, "/") {
-		warnings = append(warnings, "remap from '"+fromUrl+"' does not have trailing slash but to '"+toUrl+"' does - removing trailing slash from toUrl")
+		warnings = append(warnings, "remap from '"+fromUrl+"' does not have trailing slash but to '"+toUrl+"' does - removing trailing slash from toUrl. The rule is mapping a file to a route. Review the rule.")
 		toUrl = strings.TrimSuffix(toUrl, "/")
 	}
 
