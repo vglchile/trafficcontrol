@@ -333,7 +333,7 @@ func MakeParentDotConfig(
 				// prefixLineWithPlaylist := ""
 				prefixLineNoPlaylist := ""
 				ignoreSelfDetect := " ignore_self_detect=true" // This should later be implemented in Mapper Logics
-				if rule.OriginPath != "" {
+				if rule.OriginPath != "" && rule.OriginPath != "/" && rule.OriginPathNoPlaylist != "" && rule.OriginPathNoPlaylist != "/" {
 					// prefixLineWithPlaylist = " prefix=" + rule.OriginPath
 					prefixLineNoPlaylist = " prefix=" + rule.OriginPathNoPlaylist
 				} else {
