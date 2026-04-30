@@ -451,6 +451,10 @@ func getServerConfigRemapDotConfigForEdge(
 							return "", warnings, errors.New("adding origin URL path to remap source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
 						}
 						subRule2, mapperRemapWarns, err = buildEdgeRemapLine(atsMajorVersion, server, serverPackageParamData, subRule2, ds, mapFromNoPlaylist, rule.OriginURLNoPlaylist, profileremapConfigParams, cacheGroups, nameTopologies)
+						if mappingExists(mapperMapRawLines, subRule2) {
+							warnings = append(warnings, "mapper rule '"+subRule2+"' already exists, skipping to avoid overlap with remap rules")
+							continue
+						}
 						mapperMapRawLines = append(mapperMapRawLines, subRule2)
 						warnings = append(warnings, mapperRemapWarns...)
 					}
@@ -461,6 +465,10 @@ func getServerConfigRemapDotConfigForEdge(
 							return "", warnings, errors.New("adding origin URL path to redirect source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
 						}
 						subRule2, mapperRedirectWarns, err = buildEdgeRedirectLine(atsMajorVersion, server, serverPackageParamData, subRule2, ds, mapFromNoPlaylist, rule.OriginURL, profileremapConfigParams, cacheGroups, nameTopologies)
+						if mappingExists(mapperRedirectRawLines, subRule2) {
+							warnings = append(warnings, "mapper rule '"+subRule2+"' already exists, skipping to avoid overlap with redirect rules")
+							continue
+						}
 						mapperRedirectRawLines = append(mapperRedirectRawLines, subRule2)
 						warnings = append(warnings, mapperRedirectWarns...)
 					}
@@ -468,6 +476,7 @@ func getServerConfigRemapDotConfigForEdge(
 					if err != nil {
 						return "", warnings, err
 					}
+
 					if subRule != "" {
 						mapperRemapText += subRule + "\n" + subRule2 + "\n"
 					} else {
@@ -1131,22 +1140,9 @@ func appendPathToURL(rawURL string, pathToAppend string) (string, error) {
 	return parsedURL.String(), nil
 }
 
-func sliceContains(slice []string, target string) bool {
-	for _, v := range slice {
+func mappingExists(rawMappingList []string, target string) bool {
+	for _, v := range rawMappingList {
 		if v == target {
-			return true
-		}
-	}
-	return false
-}
-
-func isMappingContained(mappings []string, target string) bool {
-	for _, mapping := range mappings {
-		fields := strings.Fields(mapping)
-		// if len(mapping) < 3 {
-		// 	continue
-		// }
-		if string(fields[1]) == target {
 			return true
 		}
 	}
@@ -1228,7 +1224,7 @@ func removeMapRedirectOverlap(mappings []string, mapperLine string) ([]string, [
 
 	parsedSource, err := url.Parse(requestFields[1])
 	if err != nil || parsedSource.Host == "" {
-		warnings = append(warnings, "mapper rule has invalid origin URL '"+mapperLine+"', skipping line...")
+		warnings = append(warnings, "mapper rule has invalid request URL in '"+mapperLine+"', skipping line...")
 		return mappings, warnings
 	}
 
