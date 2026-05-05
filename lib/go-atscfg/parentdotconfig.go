@@ -318,7 +318,8 @@ func MakeParentDotConfig(
 		// 	continue
 		// }
 
-		// VGL Mapper: generate additional parent line if this DS matches a mapper rule
+		// VGL Mapper Support Block: generate additional parent line if this DS matches a mapper rule
+		mapperParentRawLines := []string{}
 		rules, ok := mapperRules[*ds.XMLID]
 		if ok {
 			for _, rule := range rules {
@@ -346,18 +347,28 @@ func MakeParentDotConfig(
 					if !rule.InserterIsProxy {
 						insertionProxySuffix = " parent_is_proxy=false"
 					}
-					mapperLine := "url_regex=" + ".m3u8" + prefixLineNoPlaylist + " scheme=" + rule.OriginScheme + " parent=\"" + insertionParent + "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true" + insertionProxySuffix + "\n"
+					mapperLine := "url_regex=" + ".m3u8" + prefixLineNoPlaylist + " scheme=" + rule.OriginScheme + " parent=\"" + insertionParent + "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true" + insertionProxySuffix
 					// mapperLine += "url_regex=" + "m3u8" + " path=" + rule.OriginPathNoPlaylist + " scheme=https parent=\"" + insertionParent + "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true" + insertionProxySuffix + "\n"
-					mapperTextArr = append(mapperTextArr, mapperLine)
+					if !mappingExists(mapperParentRawLines, mapperLine) {
+						mapperParentRawLines = append(mapperParentRawLines, mapperLine)
+						mapperTextArr = append(mapperTextArr, mapperLine+"\n")
+					} else {
+						warnings = append(warnings, "mapper parent rule '"+mapperLine+"' already exists, skipping to avoid overlap with mapper parent config rules")
+					}
 				}
 				backupParent := strings.Join(rule.Backups, ",")
 				backupProxySuffix := ""
 				if !rule.BackupIsProxy {
 					backupProxySuffix = " parent_is_proxy=false"
 				}
-				mapperLine := "dest_host=" + rule.OriginFQDN + prefixLineNoPlaylist + " scheme=" + rule.OriginScheme + " parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + ignoreSelfDetect + "\n"
+				mapperLine := "dest_host=" + rule.OriginFQDN + prefixLineNoPlaylist + " scheme=" + rule.OriginScheme + " parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + ignoreSelfDetect
 				// mapperLine += "dest_host=" + rule.OriginFQDN + prefixLineNoPlaylist + " scheme=https parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + ignoreSelfDetect + "\n"
-				mapperTextArr = append(mapperTextArr, mapperLine)
+				if !mappingExists(mapperParentRawLines, mapperLine) {
+					mapperParentRawLines = append(mapperParentRawLines, mapperLine)
+					mapperTextArr = append(mapperTextArr, mapperLine+"\n")
+				} else {
+					warnings = append(warnings, "mapper parent rule '"+mapperLine+"' already exists, skipping to avoid overlap with mapper parent config rules")
+				}
 			}
 		}
 
