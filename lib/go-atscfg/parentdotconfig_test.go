@@ -235,20 +235,14 @@ func TestMakeParentDotConfigMapperParentIsProxy(t *testing.T) {
 	}
 	txt := cfg.Text
 
-	if !strings.Contains(txt, `dest_host=origin.example.net prefix=/live/channel.m3u8 scheme=http parent="inserter.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false`) {
-		t.Fatalf("expected insertion http mapper line with parent_is_proxy=false, actual: %s", txt)
+	if !strings.Contains(txt, `url_regex=.m3u8 prefix=/live scheme=http parent="inserter.example.net:80" secondary_parent="origin.example.net:80" secondary_mode=2 go_direct=true parent_is_proxy=false`) {
+		t.Fatalf("expected insertion mapper line with parent_is_proxy=false, actual: %s", txt)
 	}
-	if !strings.Contains(txt, `dest_host=origin.example.net prefix=/live/channel.m3u8 scheme=https parent="inserter.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false`) {
-		t.Fatalf("expected insertion https mapper line with parent_is_proxy=false, actual: %s", txt)
+	if !strings.Contains(txt, `dest_host=origin.example.net prefix=/live scheme=http parent="backup.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false ignore_self_detect=true`) {
+		t.Fatalf("expected backup mapper line with parent_is_proxy=false, actual: %s", txt)
 	}
-	if !strings.Contains(txt, `dest_host=origin.example.net prefix=/live scheme=http parent="backup.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false`) {
-		t.Fatalf("expected backup http mapper line with parent_is_proxy=false, actual: %s", txt)
-	}
-	if !strings.Contains(txt, `dest_host=origin.example.net prefix=/live scheme=https parent="backup.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false`) {
-		t.Fatalf("expected backup https mapper line with parent_is_proxy=false, actual: %s", txt)
-	}
-	if count := strings.Count(txt, "parent_is_proxy=false"); count != 4 {
-		t.Fatalf("expected 4 parent_is_proxy=false mapper entries, got %d in: %s", count, txt)
+	if count := strings.Count(txt, "parent_is_proxy=false"); count != 2 {
+		t.Fatalf("expected 2 parent_is_proxy=false mapper entries, got %d in: %s", count, txt)
 	}
 }
 
@@ -347,6 +341,127 @@ func TestMakeParentDotConfigMapperRedirectSkipped(t *testing.T) {
 	}
 	if !strings.Contains(txt, `dest_domain=ds-mapper.example.net`) {
 		t.Fatalf("expected standard parent.config entry to remain, actual: %s", txt)
+	}
+}
+
+func TestMakeParentDotConfigMapperDeduplicatesAcrossDeliveryServices(t *testing.T) {
+	hdr := &ParentConfigOpts{AddComments: false, HdrComment: "myHeaderComment"}
+
+	ds0 := makeParentDS()
+	ds0Type := tc.DSTypeHTTP
+	ds0.Type = &ds0Type
+	ds0.XMLID = util.StrPtr("ds-mapper-a")
+	ds0.OrgServerFQDN = util.StrPtr("http://ds-mapper-a.example.net")
+
+	ds1 := makeParentDS()
+	ds1.ID = util.IntPtr(43)
+	ds1Type := tc.DSTypeHTTP
+	ds1.Type = &ds1Type
+	ds1.XMLID = util.StrPtr("ds-mapper-b")
+	ds1.OrgServerFQDN = util.StrPtr("http://ds-mapper-b.example.net")
+
+	dses := []DeliveryService{*ds0, *ds1}
+
+	parentConfigParams := []tc.Parameter{
+		tc.Parameter{
+			Name:       ParentConfigParamQStringHandling,
+			ConfigFile: "parent.config",
+			Value:      "myQStringHandlingParam",
+			Profiles:   []byte(`["serverprofile"]`),
+		},
+		tc.Parameter{
+			Name:       ParentConfigParamAlgorithm,
+			ConfigFile: "parent.config",
+			Value:      tc.AlgorithmConsistentHash,
+			Profiles:   []byte(`["serverprofile"]`),
+		},
+		tc.Parameter{
+			Name:       ParentConfigParamQString,
+			ConfigFile: "parent.config",
+			Value:      "myQstringParam",
+			Profiles:   []byte(`["serverprofile"]`),
+		},
+	}
+
+	serverParams := []tc.Parameter{
+		tc.Parameter{
+			Name:       "trafficserver",
+			ConfigFile: "package",
+			Value:      "7",
+			Profiles:   []byte(`["global"]`),
+		},
+		tc.Parameter{
+			Name:       "mapper_mode",
+			ConfigFile: "vgl_mapper.config",
+			Value:      "enabled",
+			Profiles:   []byte(`["serverprofile"]`),
+		},
+		tc.Parameter{
+			Name:       "mapper_map",
+			ConfigFile: "mapper_rules.config",
+			Value:      "0 ds-mapper-a map 1 80 http://origin.example.net/live/channel.m3u8 http://backup.example.net true http://inserter.example.net false false\n1 ds-mapper-b map 1 80 http://origin.example.net/live/channel.m3u8 http://backup.example.net true http://inserter.example.net false false",
+			Profiles:   []byte(`["serverprofile"]`),
+		},
+	}
+
+	server := makeTestParentServer()
+
+	mid := makeTestParentServer()
+	mid.Cachegroup = util.StrPtr("midCG")
+	mid.HostName = util.StrPtr("mymid0")
+	mid.ID = util.IntPtr(45)
+	setIP(mid, "192.168.2.2")
+
+	servers := []Server{*server, *mid}
+	topologies := []tc.Topology{}
+	serverCapabilities := map[int]map[ServerCapability]struct{}{}
+	dsRequiredCapabilities := map[int]map[ServerCapability]struct{}{}
+
+	eCG := &tc.CacheGroupNullable{}
+	eCG.Name = server.Cachegroup
+	eCG.ID = server.CachegroupID
+	eCG.ParentName = mid.Cachegroup
+	eCG.ParentCachegroupID = mid.CachegroupID
+	eCGType := tc.CacheGroupEdgeTypeName
+	eCG.Type = &eCGType
+
+	mCG := &tc.CacheGroupNullable{}
+	mCG.Name = mid.Cachegroup
+	mCG.ID = mid.CachegroupID
+	mCGType := tc.CacheGroupMidTypeName
+	mCG.Type = &mCGType
+
+	cgs := []tc.CacheGroupNullable{*eCG, *mCG}
+	dss := []DeliveryServiceServer{
+		{Server: *server.ID, DeliveryService: *ds0.ID},
+		{Server: *server.ID, DeliveryService: *ds1.ID},
+	}
+	cdn := &tc.CDN{DomainName: "cdndomain.example", Name: "my-cdn-name"}
+
+	cfg, err := MakeParentDotConfig(dses, server, servers, topologies, serverParams, parentConfigParams, serverCapabilities, dsRequiredCapabilities, cgs, dss, cdn, hdr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	txt := cfg.Text
+
+	expectedInsertionLine := `url_regex=.m3u8 prefix=/live scheme=http parent="inserter.example.net:80" secondary_parent="origin.example.net:80" secondary_mode=2 go_direct=true parent_is_proxy=false`
+	if count := strings.Count(txt, expectedInsertionLine); count != 1 {
+		t.Fatalf("expected insertion mapper line once across delivery services, got %d in: %s", count, txt)
+	}
+
+	expectedBackupLine := `dest_host=origin.example.net prefix=/live scheme=http parent="backup.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false ignore_self_detect=true`
+	if count := strings.Count(txt, expectedBackupLine); count != 1 {
+		t.Fatalf("expected backup mapper line once across delivery services, got %d in: %s", count, txt)
+	}
+
+	if !strings.Contains(txt, `dest_domain=ds-mapper-a.example.net`) {
+		t.Fatalf("expected standard parent.config entry for first delivery service to remain, actual: %s", txt)
+	}
+	if !strings.Contains(txt, `dest_domain=ds-mapper-b.example.net`) {
+		t.Fatalf("expected standard parent.config entry for second delivery service to remain, actual: %s", txt)
+	}
+	if count := strings.Count(strings.Join(cfg.Warnings, "\n"), "mapper parent rule '"); count != 2 {
+		t.Fatalf("expected duplicate mapper warnings for insertion and backup lines, got %d in: %v", count, cfg.Warnings)
 	}
 }
 

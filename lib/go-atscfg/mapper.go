@@ -269,3 +269,13 @@ func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperR
 	}
 	return mapperRules, warnings
 }
+
+// Utility function for parent.config and remap.config
+func mappingExists(rawMappingList []string, target string) bool {
+	for _, v := range rawMappingList {
+		if v == target {
+			return true
+		}
+	}
+	return false
+}

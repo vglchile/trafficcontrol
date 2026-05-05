@@ -1140,15 +1140,6 @@ func appendPathToURL(rawURL string, pathToAppend string) (string, error) {
 	return parsedURL.String(), nil
 }
 
-func mappingExists(rawMappingList []string, target string) bool {
-	for _, v := range rawMappingList {
-		if v == target {
-			return true
-		}
-	}
-	return false
-}
-
 func removeMapDuplicates(mappings []string, target string) ([]string, []string) {
 	warnings := []string{}
 	filteredMappings := []string{}

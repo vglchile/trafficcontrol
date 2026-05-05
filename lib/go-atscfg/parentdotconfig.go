@@ -135,6 +135,7 @@ func MakeParentDotConfig(
 
 	textArr := []string{}
 	mapperTextArr := []string{}
+	mapperParentRawLines := []string{}
 	processedOriginsToDSNames := map[string]tc.DeliveryServiceName{}
 
 	parentConfigParamsWithProfiles, err := tcParamsToParamsWithProfiles(tcParentConfigParams)
@@ -319,7 +320,6 @@ func MakeParentDotConfig(
 		// }
 
 		// VGL Mapper Support Block: generate additional parent line if this DS matches a mapper rule
-		mapperParentRawLines := []string{}
 		rules, ok := mapperRules[*ds.XMLID]
 		if ok {
 			for _, rule := range rules {
@@ -528,6 +528,7 @@ func MakeParentDotConfig(
 	text := hdr + strings.Join(mapperTextArr, "") + strings.Join(textArr, "")
 
 	// text += makeParentComment(opt.AddComments, "", "") + defaultDestText
+	// text := hdr + strings.Join(mapperTextArr, "") + strings.Join(textArr, "") + defaultDestText
 
 	return Cfg{
 		Text:        text,
@@ -546,6 +547,11 @@ func makeParentComment(addComments bool, dsName string, topology string) string 
 		return ""
 	}
 	return "# ds '" + dsName + "' topology '" + topology + "'" + "\n"
+	// comment := "# ds '" + dsName + "'"
+	// if topology != "" {
+	// 	comment += " topology '" + topology + "'"
+	// }
+	// return comment + "\n"
 }
 
 type parentConfigDS struct {
