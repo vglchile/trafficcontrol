@@ -241,9 +241,10 @@ func BuildMapperRules(mapperMode string, mapperMap string) (map[string][]mapperR
 				insertionRing = append(insertionRing, host+":"+port)
 			}
 
-			// if !legacyShortFormat && !inserterIsProxy {
-			// 	insertionRing = append(insertionRing, originFQDN+":"+originPortForRings)
-			// }
+			// If the inserter is not a proxy, add the origin to the insertion ring. This is because when parents are set to non-proxy, secondary ring is omitted entirely.
+			if !legacyShortFormat && !inserterIsProxy {
+				insertionRing = append(insertionRing, originFQDN+":"+originPortForRings)
+			}
 
 			mapperRules[xmlid] = append(mapperRules[xmlid], mapperRule{
 				DSXMLID:              xmlid,

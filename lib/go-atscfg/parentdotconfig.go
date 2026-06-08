@@ -345,9 +345,11 @@ func MakeParentDotConfig(
 					insertionParent := strings.Join(rule.InsertionRing, ",")
 					insertionProxySuffix := ""
 					if !rule.InserterIsProxy {
-						insertionProxySuffix = " parent_is_proxy=false"
+						insertionProxySuffix = "\" go_direct=true parent_is_proxy=false"
+					} else {
+						insertionProxySuffix = "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true parent_is_proxy=true"
 					}
-					mapperLine := "url_regex=" + ".m3u8" + prefixLineNoPlaylist + " scheme=" + rule.OriginScheme + " parent=\"" + insertionParent + "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true" + insertionProxySuffix
+					mapperLine := "url_regex=" + ".m3u8" + prefixLineNoPlaylist + " scheme=" + rule.OriginScheme + " parent=\"" + insertionParent + insertionProxySuffix
 					// mapperLine += "url_regex=" + "m3u8" + " path=" + rule.OriginPathNoPlaylist + " scheme=https parent=\"" + insertionParent + "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true" + insertionProxySuffix + "\n"
 					if !mappingExists(mapperParentRawLines, mapperLine) {
 						mapperParentRawLines = append(mapperParentRawLines, mapperLine)
