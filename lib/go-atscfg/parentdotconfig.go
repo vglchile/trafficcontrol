@@ -349,7 +349,7 @@ func MakeParentDotConfig(
 					} else {
 						insertionProxySuffix = "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true parent_is_proxy=true"
 					}
-					mapperLine := "url_regex=" + ".m3u8" + prefixLineNoPlaylist + " scheme=" + rule.OriginScheme + " parent=\"" + insertionParent + insertionProxySuffix
+					mapperLine := "url_regex=" + ".m3u8" + prefixLineNoPlaylist + " scheme=" + rule.RequestScheme + " parent=\"" + insertionParent + insertionProxySuffix
 					// mapperLine += "url_regex=" + "m3u8" + " path=" + rule.OriginPathNoPlaylist + " scheme=https parent=\"" + insertionParent + "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true" + insertionProxySuffix + "\n"
 					if !mappingExists(mapperParentRawLines, mapperLine) {
 						mapperParentRawLines = append(mapperParentRawLines, mapperLine)
@@ -363,7 +363,7 @@ func MakeParentDotConfig(
 				if !rule.BackupIsProxy {
 					backupProxySuffix = " parent_is_proxy=false"
 				}
-				mapperLine := "dest_host=" + rule.OriginFQDN + prefixLineNoPlaylist + " scheme=" + rule.OriginScheme + " parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + ignoreSelfDetect
+				mapperLine := "dest_host=" + rule.OriginFQDN + prefixLineNoPlaylist + " scheme=" + rule.RequestScheme + " parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + ignoreSelfDetect
 				// mapperLine += "dest_host=" + rule.OriginFQDN + prefixLineNoPlaylist + " scheme=https parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + ignoreSelfDetect + "\n"
 				if !mappingExists(mapperParentRawLines, mapperLine) {
 					mapperParentRawLines = append(mapperParentRawLines, mapperLine)
