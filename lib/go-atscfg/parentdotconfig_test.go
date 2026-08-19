@@ -235,11 +235,16 @@ func TestMakeParentDotConfigMapperParentIsProxy(t *testing.T) {
 	}
 	txt := cfg.Text
 
-	if !strings.Contains(txt, `dest_domain=myserver.ds-mapper.cdndomain.example prefix= prefix=/live suffix=.m3u8 scheme=http parent="inserter.example.net:80,origin.example.net:80" go_direct=false parent_is_proxy=false`) {
+	expectedInsertionLine := `dest_domain=myserver.ds-mapper.cdndomain.example prefix=/live suffix=.m3u8 scheme=http parent="inserter.example.net:80,origin.example.net:80" go_direct=false parent_is_proxy=false`
+	if !strings.Contains(txt, expectedInsertionLine) {
 		t.Fatalf("expected insertion mapper line with parent_is_proxy=false, actual: %s", txt)
 	}
-	if !strings.Contains(txt, `dest_domain=myserver.ds-mapper.cdndomain.example prefix=/live scheme=http parent="backup.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false ignore_self_detect=true`) {
+	expectedBackupLine := `dest_domain=myserver.ds-mapper.cdndomain.example prefix=/live scheme=http parent="backup.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false ignore_self_detect=true`
+	if !strings.Contains(txt, expectedBackupLine) {
 		t.Fatalf("expected backup mapper line with parent_is_proxy=false, actual: %s", txt)
+	}
+	if strings.Index(txt, expectedInsertionLine) > strings.Index(txt, expectedBackupLine) {
+		t.Fatalf("expected insertion mapper line before backup mapper line, actual: %s", txt)
 	}
 	if count := strings.Count(txt, "parent_is_proxy=false"); count != 2 {
 		t.Fatalf("expected 2 parent_is_proxy=false mapper entries, got %d in: %s", count, txt)
@@ -444,7 +449,7 @@ func TestMakeParentDotConfigMapperDeduplicatesAcrossDeliveryServices(t *testing.
 	}
 	txt := cfg.Text
 
-	expectedInsertionLine := `dest_domain=myserver.ds-mapper-a.cdndomain.example prefix= prefix=/live suffix=.m3u8 scheme=http parent="inserter.example.net:80,origin.example.net:80" go_direct=false parent_is_proxy=false`
+	expectedInsertionLine := `dest_domain=myserver.ds-mapper-a.cdndomain.example prefix=/live suffix=.m3u8 scheme=http parent="inserter.example.net:80,origin.example.net:80" go_direct=false parent_is_proxy=false`
 	if count := strings.Count(txt, expectedInsertionLine); count != 1 {
 		t.Fatalf("expected insertion mapper line for first delivery service once, got %d in: %s", count, txt)
 	}
@@ -453,8 +458,11 @@ func TestMakeParentDotConfigMapperDeduplicatesAcrossDeliveryServices(t *testing.
 	if count := strings.Count(txt, expectedBackupLine); count != 1 {
 		t.Fatalf("expected backup mapper line for first delivery service once, got %d in: %s", count, txt)
 	}
+	if strings.Index(txt, expectedInsertionLine) > strings.Index(txt, expectedBackupLine) {
+		t.Fatalf("expected insertion mapper line before backup mapper line for first delivery service, actual: %s", txt)
+	}
 
-	expectedSecondInsertionLine := `dest_domain=myserver.ds-mapper-b.cdndomain.example prefix= prefix=/live suffix=.m3u8 scheme=http parent="inserter.example.net:80,origin.example.net:80" go_direct=false parent_is_proxy=false`
+	expectedSecondInsertionLine := `dest_domain=myserver.ds-mapper-b.cdndomain.example prefix=/live suffix=.m3u8 scheme=http parent="inserter.example.net:80,origin.example.net:80" go_direct=false parent_is_proxy=false`
 	if count := strings.Count(txt, expectedSecondInsertionLine); count != 1 {
 		t.Fatalf("expected insertion mapper line for second delivery service once, got %d in: %s", count, txt)
 	}

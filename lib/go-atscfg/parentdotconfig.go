@@ -352,7 +352,7 @@ func MakeParentDotConfig(
 						// This behavior depends on a round_robin option. It will be enabled in a future version of Mapper.
 						// insertionProxySuffix = "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=false parent_is_proxy=true"
 					}
-					mapperLine := "dest_domain=" + mapperDestDomain + " prefix=" + prefixLineNoPlaylist + " suffix=.m3u8" + " scheme=" + rule.RequestScheme + " parent=\"" + insertionParent + insertionProxySuffix
+					mapperLine := "dest_domain=" + mapperDestDomain + prefixLineNoPlaylist + " suffix=.m3u8" + " scheme=" + rule.RequestScheme + " parent=\"" + insertionParent + insertionProxySuffix
 					// mapperLine += "url_regex=" + "m3u8" + " path=" + rule.OriginPathNoPlaylist + " scheme=https parent=\"" + insertionParent + "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true" + insertionProxySuffix + "\n"
 					if !mappingExists(mapperParentRawLines, mapperLine) {
 						mapperParentRawLines = append(mapperParentRawLines, mapperLine)
