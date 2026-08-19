@@ -322,6 +322,7 @@ func MakeParentDotConfig(
 		// VGL Mapper Support Block: generate additional parent line if this DS matches a mapper rule
 		rules, ok := mapperRules[*ds.XMLID]
 		if ok {
+			mapperDestDomain := *server.HostName + "." + *ds.XMLID + "." + serverCDNDomain
 			for _, rule := range rules {
 				if rule.RuleType == "redirect" {
 					continue // No rule should be applied to parent.config if the rule type is "redirect".
@@ -345,11 +346,13 @@ func MakeParentDotConfig(
 					insertionParent := strings.Join(rule.InsertionRing, ",")
 					insertionProxySuffix := ""
 					if !rule.InserterIsProxy {
-						insertionProxySuffix = "\" go_direct=true parent_is_proxy=false"
+						insertionProxySuffix = "\" go_direct=false parent_is_proxy=false"
 					} else {
-						insertionProxySuffix = "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true parent_is_proxy=true"
+						insertionProxySuffix = "\" go_direct=false parent_is_proxy=false"
+						// This behavior depends on a round_robin option. It will be enabled in a future version of Mapper.
+						// insertionProxySuffix = "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=false parent_is_proxy=true"
 					}
-					mapperLine := "url_regex=" + ".m3u8" + prefixLineNoPlaylist + " scheme=" + rule.RequestScheme + " parent=\"" + insertionParent + insertionProxySuffix
+					mapperLine := "dest_domain=" + mapperDestDomain + " prefix=" + prefixLineNoPlaylist + " suffix=.m3u8" + " scheme=" + rule.RequestScheme + " parent=\"" + insertionParent + insertionProxySuffix
 					// mapperLine += "url_regex=" + "m3u8" + " path=" + rule.OriginPathNoPlaylist + " scheme=https parent=\"" + insertionParent + "\" secondary_parent=\"" + rule.OriginFQDN + ":" + rule.OriginPort + "\" secondary_mode=2 go_direct=true" + insertionProxySuffix + "\n"
 					if !mappingExists(mapperParentRawLines, mapperLine) {
 						mapperParentRawLines = append(mapperParentRawLines, mapperLine)
@@ -363,7 +366,7 @@ func MakeParentDotConfig(
 				if !rule.BackupIsProxy {
 					backupProxySuffix = " parent_is_proxy=false"
 				}
-				mapperLine := "dest_host=" + rule.OriginFQDN + prefixLineNoPlaylist + " scheme=" + rule.RequestScheme + " parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + ignoreSelfDetect
+				mapperLine := "dest_domain=" + mapperDestDomain + prefixLineNoPlaylist + " scheme=" + rule.RequestScheme + " parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + ignoreSelfDetect
 				// mapperLine += "dest_host=" + rule.OriginFQDN + prefixLineNoPlaylist + " scheme=https parent=\"" + backupParent + "\" go_direct=true" + backupProxySuffix + ignoreSelfDetect + "\n"
 				if !mappingExists(mapperParentRawLines, mapperLine) {
 					mapperParentRawLines = append(mapperParentRawLines, mapperLine)

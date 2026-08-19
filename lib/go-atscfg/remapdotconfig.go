@@ -450,7 +450,7 @@ func getServerConfigRemapDotConfigForEdge(
 						if err != nil {
 							return "", warnings, errors.New("adding origin URL path to remap source '" + mapFromNoPlaylist + "': " + err.Error() + " Skipping...")
 						}
-						subRule2, mapperRemapWarns, err = buildEdgeRemapLine(atsMajorVersion, server, serverPackageParamData, subRule2, ds, mapFromNoPlaylist, rule.OriginURLNoPlaylist, profileremapConfigParams, cacheGroups, nameTopologies)
+						subRule2, mapperRemapWarns, err = buildEdgeRemapLine(atsMajorVersion, server, serverPackageParamData, subRule2, ds, mapFromNoPlaylist, mapFromNoPlaylist, profileremapConfigParams, cacheGroups, nameTopologies)
 						if mappingExists(mapperMapRawLines, subRule2) {
 							warnings = append(warnings, "mapper rule '"+subRule2+"' already exists, skipping to avoid overlap with remap rules")
 							continue

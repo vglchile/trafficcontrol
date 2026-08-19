@@ -235,10 +235,10 @@ func TestMakeParentDotConfigMapperParentIsProxy(t *testing.T) {
 	}
 	txt := cfg.Text
 
-	if !strings.Contains(txt, `url_regex=.m3u8 prefix=/live scheme=http parent="inserter.example.net:80" secondary_parent="origin.example.net:80" secondary_mode=2 go_direct=true parent_is_proxy=false`) {
+	if !strings.Contains(txt, `dest_domain=myserver.ds-mapper.cdndomain.example prefix= prefix=/live suffix=.m3u8 scheme=http parent="inserter.example.net:80,origin.example.net:80" go_direct=false parent_is_proxy=false`) {
 		t.Fatalf("expected insertion mapper line with parent_is_proxy=false, actual: %s", txt)
 	}
-	if !strings.Contains(txt, `dest_host=origin.example.net prefix=/live scheme=http parent="backup.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false ignore_self_detect=true`) {
+	if !strings.Contains(txt, `dest_domain=myserver.ds-mapper.cdndomain.example prefix=/live scheme=http parent="backup.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false ignore_self_detect=true`) {
 		t.Fatalf("expected backup mapper line with parent_is_proxy=false, actual: %s", txt)
 	}
 	if count := strings.Count(txt, "parent_is_proxy=false"); count != 2 {
@@ -444,14 +444,24 @@ func TestMakeParentDotConfigMapperDeduplicatesAcrossDeliveryServices(t *testing.
 	}
 	txt := cfg.Text
 
-	expectedInsertionLine := `url_regex=.m3u8 prefix=/live scheme=http parent="inserter.example.net:80" secondary_parent="origin.example.net:80" secondary_mode=2 go_direct=true parent_is_proxy=false`
+	expectedInsertionLine := `dest_domain=myserver.ds-mapper-a.cdndomain.example prefix= prefix=/live suffix=.m3u8 scheme=http parent="inserter.example.net:80,origin.example.net:80" go_direct=false parent_is_proxy=false`
 	if count := strings.Count(txt, expectedInsertionLine); count != 1 {
-		t.Fatalf("expected insertion mapper line once across delivery services, got %d in: %s", count, txt)
+		t.Fatalf("expected insertion mapper line for first delivery service once, got %d in: %s", count, txt)
 	}
 
-	expectedBackupLine := `dest_host=origin.example.net prefix=/live scheme=http parent="backup.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false ignore_self_detect=true`
+	expectedBackupLine := `dest_domain=myserver.ds-mapper-a.cdndomain.example prefix=/live scheme=http parent="backup.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false ignore_self_detect=true`
 	if count := strings.Count(txt, expectedBackupLine); count != 1 {
-		t.Fatalf("expected backup mapper line once across delivery services, got %d in: %s", count, txt)
+		t.Fatalf("expected backup mapper line for first delivery service once, got %d in: %s", count, txt)
+	}
+
+	expectedSecondInsertionLine := `dest_domain=myserver.ds-mapper-b.cdndomain.example prefix= prefix=/live suffix=.m3u8 scheme=http parent="inserter.example.net:80,origin.example.net:80" go_direct=false parent_is_proxy=false`
+	if count := strings.Count(txt, expectedSecondInsertionLine); count != 1 {
+		t.Fatalf("expected insertion mapper line for second delivery service once, got %d in: %s", count, txt)
+	}
+
+	expectedSecondBackupLine := `dest_domain=myserver.ds-mapper-b.cdndomain.example prefix=/live scheme=http parent="backup.example.net:80,origin.example.net:80" go_direct=true parent_is_proxy=false ignore_self_detect=true`
+	if count := strings.Count(txt, expectedSecondBackupLine); count != 1 {
+		t.Fatalf("expected backup mapper line for second delivery service once, got %d in: %s", count, txt)
 	}
 
 	if !strings.Contains(txt, `dest_domain=ds-mapper-a.example.net`) {
@@ -460,8 +470,8 @@ func TestMakeParentDotConfigMapperDeduplicatesAcrossDeliveryServices(t *testing.
 	if !strings.Contains(txt, `dest_domain=ds-mapper-b.example.net`) {
 		t.Fatalf("expected standard parent.config entry for second delivery service to remain, actual: %s", txt)
 	}
-	if count := strings.Count(strings.Join(cfg.Warnings, "\n"), "mapper parent rule '"); count != 2 {
-		t.Fatalf("expected duplicate mapper warnings for insertion and backup lines, got %d in: %v", count, cfg.Warnings)
+	if count := strings.Count(strings.Join(cfg.Warnings, "\n"), "mapper parent rule '"); count != 0 {
+		t.Fatalf("expected no duplicate mapper warnings, got %d in: %v", count, cfg.Warnings)
 	}
 }
 
