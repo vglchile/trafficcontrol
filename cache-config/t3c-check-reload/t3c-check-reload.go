@@ -96,7 +96,8 @@ func main() {
 			strings.Contains(path, "url_sig_") ||
 			strings.Contains(path, "uri_signing_") ||
 			strings.Contains(path, "plugin.config") ||
-			strings.Contains(path, "50-ats.rules") {
+			strings.Contains(path, "50-ats.rules") ||
+			strings.Contains(path, "80-ats.rules") {
 			ExitReload()
 		}
 	}
@@ -125,7 +126,7 @@ func ExitNothing() {
 	os.Exit(0)
 }
 
-var configFilesRequiringRestart = []string{"plugin.config", "50-ats.rules"}
+var configFilesRequiringRestart = []string{"plugin.config", "50-ats.rules", "80-ats.rules"}
 
 // StrMap applies the given function fn to all strings in strs.
 func StrMap(strs []string, fn func(str string) string) []string {

@@ -79,6 +79,7 @@ func getConfigFileFunc(fileName string) ConfigFileFunc {
 var configFileLiteralFuncs = []ConfigFileLiteralFunc{
 	{"12M_facts", Make12MFacts},
 	{"50-ats.rules", MakeATSDotRules},
+	{"80-ats.rules", MakeATSDotRules},
 	{"astats.config", MakeAstatsDotConfig},
 	{"bg_fetch.config", MakeBGFetchDotConfig},
 	{"cache.config", MakeCacheDotConfig},

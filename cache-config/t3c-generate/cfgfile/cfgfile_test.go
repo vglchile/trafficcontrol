@@ -75,12 +75,41 @@ func TestWriteConfigs(t *testing.T) {
 	}
 }
 
+func TestGetConfigFileRoutes80ATSRules(t *testing.T) {
+	toData := MakeFakeTOData()
+	serverProfile := "serverProfile"
+	toData.Server.Profile = &serverProfile
+	toData.ServerParams = append(toData.ServerParams,
+		tc.Parameter{
+			ConfigFile: atscfg.ATSDotRulesFileName,
+			Name:       "Drive_Prefix",
+			Value:      "/dev/sd",
+			Profiles:   []byte(`["` + serverProfile + `"]`),
+		},
+		tc.Parameter{
+			ConfigFile: atscfg.ATSDotRulesFileName,
+			Name:       "Drive_Letters",
+			Value:      "a",
+			Profiles:   []byte(`["` + serverProfile + `"]`),
+		},
+	)
+
+	text, _, _, _, err := GetConfigFile(toData, atscfg.CfgMeta{Name: "80-ats.rules", Path: "/etc/udev/rules.d"}, "", config.Cfg{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expectedText := `KERNEL=="sda", OWNER="ats"`
+	if !strings.Contains(text, expectedText) {
+		t.Errorf("expected 80-ats.rules to use ATS rules generator and contain %q, actual: %q", expectedText, text)
+	}
+}
+
 // TestGetAllConfigsWriteConfigsDeterministic tests that WriteConfigs(GetAllConfigs()) is Deterministic.
 // That is, that for the same input, it always produces the same output.
 //
 // Because Go map iteration is defined to be random, running it multiple times even on the exact same input could be different, if there's a determinism bug.
 // But beyond that, we re-order slices whose order isn't semantically significant (e.g. params) and run it again.
-//
 func TestGetAllConfigsWriteConfigsDeterministic(t *testing.T) {
 	// TODO expand fake data. Currently, it's only making a remap.config.
 	toData := MakeFakeTOData()

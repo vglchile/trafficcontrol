@@ -234,7 +234,7 @@ func (r *TrafficOpsReq) checkConfigFile(cfg *ConfigFile, filesAdding []string) e
 	cfg.ChangeNeeded = changeNeeded
 	cfg.AuditComplete = true
 
-	if cfg.Name == "50-ats.rules" {
+	if cfg.Name == "50-ats.rules" || cfg.Name == "80-ats.rules" {
 		err := r.processUdevRules(cfg)
 		if err != nil {
 			return errors.New("unable to process udev rules in '" + cfg.Name + "': " + err.Error())
@@ -834,7 +834,7 @@ func (r *TrafficOpsReq) ProcessConfigFiles() (UpdateStatus, error) {
 			}
 		} else if strings.Contains(cfg.Path, "/opt/ort") && strings.Contains(cfg.Name, "12M_facts") {
 			cfg.Service = "puppet"
-		} else if strings.Contains(cfg.Path, "cron") || strings.Contains(cfg.Name, "sysctl.conf") || strings.Contains(cfg.Name, "50-ats.rules") || strings.Contains(cfg.Name, "cron") {
+		} else if strings.Contains(cfg.Path, "cron") || strings.Contains(cfg.Name, "sysctl.conf") || cfg.Name == "50-ats.rules" || cfg.Name == "80-ats.rules" || strings.Contains(cfg.Name, "cron") {
 			cfg.Service = "system"
 		} else if strings.Contains(cfg.Path, "ntp.conf") {
 			cfg.Service = "ntpd"
