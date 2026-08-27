@@ -57,13 +57,19 @@ func MakeATSDotRules(
 
 	drivePrefix := strings.TrimPrefix(paramData["Drive_Prefix"], `/dev/`)
 	drivePostfix := strings.Split(paramData["Drive_Letters"], ",")
+	udevFilter := strings.Fields(paramData["Udev_Filter"])
+
+	udevTextFilter := `KERNEL=="`
+	if len(udevFilter) == 1 && strings.EqualFold(strings.TrimSpace(udevFilter[0]), "symlink") {
+		udevTextFilter = `SYMLINK=="`
+	}
 
 	for _, l := range drivePostfix {
 		l = strings.TrimSpace(l)
 		if l == "" {
 			continue
 		}
-		text += `KERNEL=="` + drivePrefix + l + `", OWNER="ats"` + "\n"
+		text += udevTextFilter + drivePrefix + l + `", OWNER="ats"` + "\n"
 	}
 	if ramPrefix, ok := paramData["RAM_Drive_Prefix"]; ok {
 		ramPrefix = strings.TrimPrefix(ramPrefix, `/dev/`)

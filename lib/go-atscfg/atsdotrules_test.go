@@ -79,3 +79,25 @@ func TestMakeATSDotRules(t *testing.T) {
 		t.Errorf("expected sda for drive letter, actual: '%v'", txt)
 	}
 }
+
+func TestMakeATSDotRulesUdevFilterSymlink(t *testing.T) {
+	server := makeGenericServer()
+	serverProfile := "myProfile"
+	server.Profile = &serverProfile
+
+	serverParams := makeParamsFromMap(serverProfile, ATSDotRulesFileName, map[string]string{
+		"Drive_Prefix":  "/dev/sd",
+		"Drive_Letters": "a",
+		"Udev_Filter":   "symlink",
+	})
+
+	cfg, err := MakeATSDotRules(server, serverParams, &ATSDotRulesOpts{HdrComment: "myHeaderComment"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expectedText := "# myHeaderComment\n" + `SYMLINK=="sda", OWNER="ats"` + "\n"
+	if cfg.Text != expectedText {
+		t.Errorf("expected symlink udev filter output %q, actual: %q", expectedText, cfg.Text)
+	}
+}
